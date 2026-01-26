@@ -1,105 +1,263 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
+/* 
+  🧠 COGNITIVE HUD DESIGN SYSTEM
+  Inspired by: Accel World × Apple Vision Pro × Dieter Rams
+  
+  Philosophy: L'interface n'est pas un objet. C'est un état transitoire du système.
 */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* ═══════════════════════════════════════════════════════
+       INTENT-BASED COLOR TOKENS (Never use colors directly)
+       ═══════════════════════════════════════════════════════ */
+    
+    /* Core Background - Deep void */
+    --background: 220 20% 4%;
+    --foreground: 210 20% 92%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    /* Surfaces - Glassmorphic layers */
+    --surface-void: 220 25% 6%;
+    --surface-glass: 220 20% 12%;
+    --surface-elevated: 220 18% 16%;
+    
+    /* Intent Colors - Cognitive states */
+    --intent-primary: 187 85% 53%;           /* Cyan glacial */
+    --intent-primary-glow: 187 100% 60%;
+    --intent-secondary: 270 80% 65%;         /* Violet électrique */
+    --intent-secondary-glow: 270 100% 72%;
+    --intent-neutral: 220 15% 45%;
+    --intent-focus: 200 90% 60%;
+    --intent-success: 165 70% 50%;
+    --intent-warning: 35 90% 55%;
+    
+    /* Text Hierarchy */
+    --text-primary: 210 20% 95%;
+    --text-secondary: 215 15% 70%;
+    --text-muted: 220 12% 50%;
+    --text-ghost: 220 10% 35%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-
-    --radius: 0.5rem;
-
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Glassmorphism Properties */
+    --glass-opacity: 0.08;
+    --glass-opacity-active: 0.14;
+    --glass-blur: 20px;
+    --glass-blur-heavy: 32px;
+    
+    /* Glow & Energy */
+    --glow-primary: 187 100% 60% / 0.4;
+    --glow-secondary: 270 100% 70% / 0.35;
+    --glow-subtle: 200 80% 60% / 0.15;
+    
+    /* Borders - Ethereal edges */
+    --border: 220 20% 18%;
+    --border-glow: 187 60% 40% / 0.3;
+    --border-focus: 187 80% 50% / 0.5;
+    
+    /* Shadows - Depth perception */
+    --shadow-ambient: 0 8px 32px -8px hsl(220 40% 4% / 0.8);
+    --shadow-glow: 0 0 40px -10px hsl(var(--intent-primary) / 0.3);
+    --shadow-elevated: 0 20px 60px -20px hsl(220 40% 2% / 0.9);
+    
+    /* Motion Timing */
+    --duration-micro: 120ms;
+    --duration-short: 220ms;
+    --duration-medium: 360ms;
+    --duration-long: 520ms;
+    
+    /* Easing - Custom cognitive curves */
+    --ease-cognitive-enter: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-cognitive-exit: cubic-bezier(0.7, 0, 0.84, 0);
+    --ease-bounce-soft: cubic-bezier(0.34, 1.56, 0.64, 1);
+    
+    /* Spacing - Breathing rhythm */
+    --space-nano: 4px;
+    --space-micro: 8px;
+    --space-small: 12px;
+    --space-medium: 20px;
+    --space-large: 32px;
+    --space-huge: 48px;
+    
+    /* Typography */
+    --font-primary: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-weight-thin: 200;
+    --font-weight-light: 300;
+    --font-weight-regular: 400;
+    --font-weight-medium: 500;
+    
+    /* Radius - Organic edges */
+    --radius: 0.75rem;
+    --radius-sm: 0.5rem;
+    --radius-lg: 1.25rem;
+    --radius-xl: 1.75rem;
+    --radius-full: 9999px;
+    
+    /* Legacy shadcn compatibility */
+    --card: 220 20% 8%;
+    --card-foreground: 210 20% 92%;
+    --popover: 220 20% 8%;
+    --popover-foreground: 210 20% 92%;
+    --primary: 187 85% 53%;
+    --primary-foreground: 220 20% 4%;
+    --secondary: 270 80% 65%;
+    --secondary-foreground: 210 20% 95%;
+    --muted: 220 15% 20%;
+    --muted-foreground: 215 15% 55%;
+    --accent: 200 90% 60%;
+    --accent-foreground: 220 20% 4%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 210 20% 95%;
+    --input: 220 20% 18%;
+    --ring: 187 85% 53%;
+    
+    --sidebar-background: 220 25% 6%;
+    --sidebar-foreground: 210 20% 85%;
+    --sidebar-primary: 187 85% 53%;
+    --sidebar-primary-foreground: 220 20% 4%;
+    --sidebar-accent: 220 18% 14%;
+    --sidebar-accent-foreground: 210 20% 90%;
+    --sidebar-border: 220 20% 15%;
+    --sidebar-ring: 187 85% 53%;
   }
 }
+
+/* ═══════════════════════════════════════════════════════
+   BASE STYLES
+   ═══════════════════════════════════════════════════════ */
 
 @layer base {
   * {
     @apply border-border;
   }
 
+  html {
+    font-family: var(--font-primary);
+    font-weight: var(--font-weight-light);
+    letter-spacing: 0.01em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
   body {
     @apply bg-background text-foreground;
+    background: 
+      radial-gradient(ellipse 80% 50% at 50% -20%, hsl(var(--intent-primary) / 0.08), transparent),
+      radial-gradient(ellipse 60% 40% at 80% 100%, hsl(var(--intent-secondary) / 0.05), transparent),
+      hsl(var(--background));
+    min-height: 100vh;
+  }
+
+  /* Subtle noise texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    opacity: 0.015;
+    pointer-events: none;
+    z-index: 9999;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   COGNITIVE UTILITIES
+   ═══════════════════════════════════════════════════════ */
+
+@layer utilities {
+  /* Glassmorphism surfaces */
+  .glass-surface {
+    background: hsl(var(--surface-glass) / var(--glass-opacity));
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid hsl(var(--border) / 0.5);
+  }
+  
+  .glass-surface-active {
+    background: hsl(var(--surface-glass) / var(--glass-opacity-active));
+    backdrop-filter: blur(var(--glass-blur-heavy));
+    -webkit-backdrop-filter: blur(var(--glass-blur-heavy));
+    border: 1px solid hsl(var(--border-glow));
+  }
+  
+  /* Glow effects */
+  .glow-primary {
+    box-shadow: 
+      0 0 20px -5px hsl(var(--glow-primary)),
+      0 0 40px -10px hsl(var(--glow-primary)),
+      var(--shadow-ambient);
+  }
+  
+  .glow-secondary {
+    box-shadow: 
+      0 0 20px -5px hsl(var(--glow-secondary)),
+      0 0 40px -10px hsl(var(--glow-secondary)),
+      var(--shadow-ambient);
+  }
+  
+  .glow-subtle {
+    box-shadow: 
+      0 0 30px -10px hsl(var(--glow-subtle)),
+      var(--shadow-ambient);
+  }
+  
+  /* Text styles */
+  .text-cognitive {
+    color: hsl(var(--text-primary));
+    font-weight: var(--font-weight-light);
+    line-height: 1.6;
+  }
+  
+  .text-ghost {
+    color: hsl(var(--text-ghost));
+    font-weight: var(--font-weight-thin);
+  }
+  
+  /* Breathing animation for state indicators */
+  @keyframes breathe {
+    0%, 100% { opacity: 0.4; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.05); }
+  }
+  
+  @keyframes pulse-ring {
+    0% { transform: scale(0.95); opacity: 0.8; }
+    50% { transform: scale(1.02); opacity: 1; }
+    100% { transform: scale(0.95); opacity: 0.8; }
+  }
+  
+  @keyframes rotate-slow {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  
+  .animate-breathe {
+    animation: breathe 3s ease-in-out infinite;
+  }
+  
+  .animate-pulse-ring {
+    animation: pulse-ring 2s ease-in-out infinite;
+  }
+  
+  .animate-rotate-slow {
+    animation: rotate-slow 8s linear infinite;
+  }
+  
+  .animate-shimmer {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsl(var(--intent-primary) / 0.1) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s ease-in-out infinite;
   }
 }
