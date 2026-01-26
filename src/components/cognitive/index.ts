@@ -7,3 +7,5 @@ export type { IndicatorMode } from './StateIndicator';
 export { ThoughtStream } from './ThoughtStream';
 export { EphemeralAction } from './EphemeralAction';
 export { ResponseCard } from './ResponseCard';
+export type { ResponseState } from './ResponseCard';
+export { FuturisticFrame } from './FuturisticFrame';

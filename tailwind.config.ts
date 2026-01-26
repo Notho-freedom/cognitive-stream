@@ -8,6 +8,10 @@ export default {
     "./app/**/*.{ts,tsx}",
     "./src/**/*.{ts,tsx}",
   ],
+  // Enable future features
+  future: {
+    hoverOnlyWhenSupported: true,
+  },
   prefix: "",
   theme: {
     container: {
@@ -49,6 +53,7 @@ export default {
         // Surface colors
         surface: {
           void: "hsl(var(--surface-void))",
+          deep: "hsl(var(--surface-deep))",
           glass: "hsl(var(--surface-glass))",
           elevated: "hsl(var(--surface-elevated))",
         },
@@ -170,6 +175,12 @@ export default {
           "0%": { transform: "rotate(0deg)" },
           "100%": { transform: "rotate(360deg)" },
         },
+        "scan-line": {
+          "0%": { top: "0%", opacity: "0" },
+          "10%": { opacity: "0.5" },
+          "90%": { opacity: "0.5" },
+          "100%": { top: "100%", opacity: "0" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -180,6 +191,7 @@ export default {
         "glow-pulse": "glow-pulse 2s ease-in-out infinite",
         "breathe": "breathe 3s ease-in-out infinite",
         "orbit": "orbit 8s linear infinite",
+        "scan-line": "scan-line 2s ease-in-out infinite",
       },
     },
   },
