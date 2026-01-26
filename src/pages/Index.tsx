@@ -1,222 +1,103 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  CognitiveSurface, 
-  StateIndicator, 
-  ThoughtStream,
-  EphemeralAction,
-  ResponseCard,
-  IndicatorMode 
-} from '@/components/cognitive';
+import { ResponseCard, ResponseState } from '@/components/cognitive';
 
-const DEMO_TEXT = "Je suis une intelligence cognitive. Mon interface n'est pas un objet — c'est un état transitoire du système. Tout apparaît, aide, puis disparaît.";
+const DEMO_RESPONSES = [
+  "Analyse terminée. J'ai identifié 3 patterns récurrents dans vos données. Voulez-vous que je génère un rapport détaillé ?",
+  "Connexion établie avec le réseau neural. Latence optimale détectée.",
+  "Scan environnemental complet. Aucune anomalie détectée dans le périmètre.",
+];
 
-const states: IndicatorMode[] = ['idle', 'listening', 'thinking', 'responding', 'success'];
+const states: ResponseState[] = ['idle', 'listening', 'thinking', 'responding', 'complete'];
 
 export default function Index() {
-  const [currentStateIndex, setCurrentStateIndex] = useState(0);
-  const [showResponse, setShowResponse] = useState(false);
+  const [currentStateIndex, setCurrentStateIndex] = useState(3); // Start at 'responding'
+  const [showCard, setShowCard] = useState(true);
+  const [messageIndex, setMessageIndex] = useState(0);
 
-  // Cycle through states for demo
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentStateIndex(i => (i + 1) % states.length);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
+  const cycleState = () => {
+    setCurrentStateIndex(i => (i + 1) % states.length);
+  };
+
+  const resetCard = () => {
+    setShowCard(false);
+    setTimeout(() => {
+      setMessageIndex(i => (i + 1) % DEMO_RESPONSES.length);
+      setCurrentStateIndex(3);
+      setShowCard(true);
+    }, 400);
+  };
 
   return (
-    <div className="min-h-screen p-8 lg:p-16 overflow-hidden">
-      {/* Ambient background effects */}
+    <div className="min-h-screen flex items-center justify-center p-8 overflow-hidden">
+      {/* Minimal ambient background */}
       <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-intent-primary/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-intent-secondary/5 rounded-full blur-3xl" />
+        <div className="absolute top-1/3 left-1/3 w-[600px] h-[600px] bg-intent-primary/3 rounded-full blur-[120px]" />
+        <div className="absolute bottom-1/3 right-1/3 w-[400px] h-[400px] bg-intent-secondary/3 rounded-full blur-[100px]" />
       </div>
 
-      <div className="relative z-10 max-w-6xl mx-auto">
+      <div className="relative z-10 w-full max-w-2xl mx-auto">
         {/* Header */}
-        <motion.header
+        <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-          className="mb-20"
+          className="text-center mb-12"
         >
-          <div className="flex items-center gap-4 mb-4">
-            <StateIndicator mode="idle" size="sm" />
-            <h1 className="text-2xl font-light tracking-wide text-text-primary">
-              Cognitive HUD
-            </h1>
-          </div>
-          <p className="text-text-muted font-thin tracking-wide max-w-xl">
-            Design System — Accel World × Apple Vision Pro
+          <h1 className="text-sm uppercase tracking-[0.3em] text-text-ghost font-light mb-2">
+            Cognitive HUD
+          </h1>
+          <p className="text-xs text-text-ghost/60 font-mono">
+            RESPONSE.CARD.PROTOTYPE.v1
           </p>
-        </motion.header>
+        </motion.div>
 
-        {/* Components Showcase */}
-        <div className="space-y-20">
-          
-          {/* Section 1: State Indicators */}
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2, duration: 0.6 }}
-          >
-            <h2 className="text-sm uppercase tracking-widest text-text-ghost mb-8 font-light">
-              State Indicators
-            </h2>
-            
-            <CognitiveSurface intent="neutral" className="p-8">
-              <div className="flex flex-wrap items-center gap-12">
-                {states.map((state, i) => (
-                  <motion.div
-                    key={state}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: i * 0.1 }}
-                    className="flex flex-col items-center gap-4"
-                  >
-                    <StateIndicator mode={state} size="lg" />
-                    <span className="text-xs text-text-ghost uppercase tracking-wider">
-                      {state}
-                    </span>
-                  </motion.div>
-                ))}
-              </div>
-            </CognitiveSurface>
-          </motion.section>
-
-          {/* Section 2: Cognitive Surfaces */}
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4, duration: 0.6 }}
-          >
-            <h2 className="text-sm uppercase tracking-widest text-text-ghost mb-8 font-light">
-              Cognitive Surfaces
-            </h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <CognitiveSurface intent="primary" state="idle" className="p-6">
-                <h3 className="text-text-primary font-light mb-2">Primary Intent</h3>
-                <p className="text-text-secondary text-sm font-thin">
-                  Cyan glacial — focus principal
-                </p>
-              </CognitiveSurface>
-
-              <CognitiveSurface intent="secondary" state="idle" glow className="p-6">
-                <h3 className="text-text-primary font-light mb-2">Secondary + Glow</h3>
-                <p className="text-text-secondary text-sm font-thin">
-                  Violet électrique — énergie
-                </p>
-              </CognitiveSurface>
-
-              <CognitiveSurface intent="focus" state="listening" className="p-6">
-                <h3 className="text-text-primary font-light mb-2">Focus State</h3>
-                <p className="text-text-secondary text-sm font-thin">
-                  Active — listening mode
-                </p>
-              </CognitiveSurface>
-            </div>
-          </motion.section>
-
-          {/* Section 3: Thought Stream */}
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.6, duration: 0.6 }}
-          >
-            <h2 className="text-sm uppercase tracking-widest text-text-ghost mb-8 font-light">
-              Thought Stream
-            </h2>
-            
-            <CognitiveSurface intent="primary" glow className="p-8 max-w-2xl">
-              <div className="flex items-center gap-3 mb-6">
-                <StateIndicator mode={states[currentStateIndex]} size="sm" showLabel />
-              </div>
-              <ThoughtStream 
-                text={DEMO_TEXT}
-                speed="adaptive"
-                isStreaming={true}
+        {/* Response Card Demo */}
+        <div className="flex justify-center mb-12">
+          <AnimatePresence mode="wait">
+            {showCard && (
+              <ResponseCard
+                key={messageIndex}
+                text={DEMO_RESPONSES[messageIndex]}
+                state={states[currentStateIndex]}
+                showAction
+                actionLabel="Générer"
+                onAction={() => {
+                  console.log('Action triggered');
+                  resetCard();
+                }}
+                onDismiss={() => setShowCard(false)}
               />
-            </CognitiveSurface>
-          </motion.section>
-
-          {/* Section 4: Ephemeral Actions */}
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.8, duration: 0.6 }}
-          >
-            <h2 className="text-sm uppercase tracking-widest text-text-ghost mb-8 font-light">
-              Ephemeral Actions
-            </h2>
-            
-            <div className="flex flex-wrap gap-4">
-              <EphemeralAction 
-                label="Confirmer" 
-                variant="primary"
-                ttl={10000}
-                onConfirm={() => console.log('Confirmed')}
-              />
-              <EphemeralAction 
-                label="Exécuter" 
-                variant="secondary"
-                ttl={10000}
-              />
-              <EphemeralAction 
-                label="Annuler" 
-                variant="subtle"
-                ttl={10000}
-              />
-            </div>
-          </motion.section>
-
-          {/* Section 5: Response Card Demo */}
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 1.0, duration: 0.6 }}
-          >
-            <h2 className="text-sm uppercase tracking-widest text-text-ghost mb-8 font-light">
-              Response Card
-            </h2>
-            
-            <button
-              onClick={() => setShowResponse(true)}
-              className="text-intent-primary text-sm font-light tracking-wide underline underline-offset-4 mb-8 hover:text-intent-primary-glow transition-colors"
-            >
-              Trigger Response →
-            </button>
-
-            <AnimatePresence>
-              {showResponse && (
-                <ResponseCard
-                  text="Analyse terminée. J'ai identifié 3 patterns récurrents dans vos données. Voulez-vous que je génère un rapport détaillé ?"
-                  state="responding"
-                  showAction
-                  actionLabel="Générer"
-                  onAction={() => {
-                    console.log('Action triggered');
-                    setShowResponse(false);
-                  }}
-                  onDismiss={() => setShowResponse(false)}
-                />
-              )}
-            </AnimatePresence>
-          </motion.section>
-
-          {/* Footer */}
-          <motion.footer
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1.2, duration: 0.6 }}
-            className="pt-16 border-t border-border/30"
-          >
-            <p className="text-text-ghost text-sm font-thin tracking-wide">
-              L'interface n'est pas un objet — c'est un état transitoire du système.
-            </p>
-          </motion.footer>
+            )}
+          </AnimatePresence>
         </div>
+
+        {/* Controls */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="flex justify-center gap-4"
+        >
+          <button
+            onClick={cycleState}
+            className="px-4 py-2 text-xs uppercase tracking-wider text-text-ghost hover:text-text-secondary transition-colors border border-intent-neutral/20 hover:border-intent-primary/40"
+            style={{
+              clipPath: 'polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%)',
+            }}
+          >
+            State: {states[currentStateIndex]}
+          </button>
+
+          <button
+            onClick={resetCard}
+            className="px-4 py-2 text-xs uppercase tracking-wider text-text-ghost hover:text-intent-primary transition-colors border border-intent-neutral/20 hover:border-intent-primary/40"
+            style={{
+              clipPath: 'polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%)',
+            }}
+          >
+            Reset Card
+          </button>
+        </motion.div>
       </div>
     </div>
   );

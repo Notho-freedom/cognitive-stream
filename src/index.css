@@ -23,6 +23,7 @@
 
     /* Surfaces - Glassmorphic layers */
     --surface-void: 220 25% 6%;
+    --surface-deep: 220 22% 8%;
     --surface-glass: 220 20% 12%;
     --surface-elevated: 220 18% 16%;
     
