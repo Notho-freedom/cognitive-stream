@@ -296,7 +296,19 @@ export const CommandInput = forwardRef<HTMLDivElement, CommandInputProps>(
                         {showAction && query.trim() && (
                           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: 0.2, duration: 0.3 }} className="flex justify-end gap-3 pt-4 border-t border-intent-primary/10">
                             <button onClick={handleDismiss} className="group relative px-4 py-2 text-xs uppercase tracking-wider text-text-ghost hover:text-text-secondary transition-colors"><span className="relative z-10">Annuler</span><div className="absolute inset-0 bg-intent-neutral/10 opacity-0 group-hover:opacity-100 transition-opacity" style={{ clipPath: 'polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%)' }} /></button>
-                            <button onClick={handleAction} className="group relative px-6 py-2 text-xs uppercase tracking-wider text-text-primary font-medium"><span className="relative z-10">{actionLabel}</span><div className="absolute inset-0 bg-intent-primary/20 group-hover:bg-intent-primary/30 transition-colors" style={{ clipPath: 'polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%)' }} /><div className="absolute inset-0 border border-intent-primary/50" style={{ clipPath: 'polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%)' }} /><div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-intent-primary" /><div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-intent-primary" /></button>
+                            <button onClick={handleAction} className="group relative px-6 py-2 text-xs uppercase tracking-wider text-text-primary font-medium">
+                              <span className="relative z-10">{actionLabel}</span>
+
+                              {/* Sheen / sintillement */}
+                              <motion.div className="pointer-events-none absolute inset-0 overflow-hidden" initial={{ opacity: 0 }} animate={{ opacity: [0, 0.8, 0] }} transition={{ duration: 2.8, repeat: Infinity }}>
+                                <motion.div className="absolute left-[-40%] top-0 w-[40%] h-full bg-gradient-to-r from-transparent via-white/40 to-transparent transform skew-x-12" animate={{ x: ['-40%', '140%'] }} transition={{ duration: 1.1, repeat: Infinity, ease: 'easeInOut' }} />
+                              </motion.div>
+
+                              <div className="absolute inset-0 bg-intent-primary/20 group-hover:bg-intent-primary/30 transition-colors" style={{ clipPath: 'polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%)' }} />
+                              <div className="absolute inset-0 border border-intent-primary/50" style={{ clipPath: 'polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%)' }} />
+                              <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-intent-primary" />
+                              <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-intent-primary" />
+                            </button>
                           </motion.div>
                         )}
                       </AnimatePresence>
