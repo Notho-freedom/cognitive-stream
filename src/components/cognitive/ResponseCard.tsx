@@ -91,27 +91,51 @@ export function ResponseCard({
                 </div>
 
                 {/* Tech decoration - right side */}
-                <div className="flex items-center gap-2">
-                  <div className="flex gap-1">
-                    {[...Array(3)].map((_, i) => (
+                <div className="flex items-center gap-3">
+                  {/* Signal bars */}
+                  <div className="flex items-end gap-0.5">
+                    {[...Array(4)].map((_, i) => (
                       <motion.div
                         key={i}
-                        className="w-1 h-3 bg-intent-primary/40"
+                        className="w-[3px] bg-intent-primary"
+                        style={{ height: `${6 + i * 3}px` }}
                         animate={{
-                          opacity: state === 'thinking' ? [0.3, 1, 0.3] : 0.4,
-                          scaleY: state === 'thinking' ? [0.5, 1, 0.5] : 1,
+                          opacity: [0.3, 0.8, 0.3],
+                          scaleY: state === 'thinking' || state === 'responding' 
+                            ? [0.7, 1, 0.7] 
+                            : 1,
                         }}
                         transition={{
-                          duration: 0.8,
-                          delay: i * 0.15,
-                          repeat: state === 'thinking' ? Infinity : 0,
+                          duration: 1.2,
+                          delay: i * 0.1,
+                          repeat: Infinity,
+                          ease: "easeInOut",
                         }}
                       />
                     ))}
                   </div>
-                  <span className="text-[8px] text-text-ghost font-mono">
+                  
+                  {/* Pulse indicator */}
+                  <motion.div 
+                    className="relative w-2 h-2"
+                    animate={{ scale: [1, 1.2, 1] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                  >
+                    <div className="absolute inset-0 rounded-full bg-intent-primary/60" />
+                    <motion.div 
+                      className="absolute inset-0 rounded-full bg-intent-primary"
+                      animate={{ opacity: [0.4, 1, 0.4], scale: [0.8, 1, 0.8] }}
+                      transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                  </motion.div>
+
+                  <motion.span 
+                    className="text-[8px] text-text-ghost font-mono"
+                    animate={{ opacity: [0.5, 1, 0.5] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                  >
                     SYS.OK
-                  </span>
+                  </motion.span>
                 </div>
               </div>
 
@@ -179,17 +203,39 @@ export function ResponseCard({
               {/* Bottom data bar */}
               <div className="flex items-center justify-between mt-4 pt-3 border-t border-intent-primary/10">
                 <div className="flex items-center gap-4 text-[8px] text-text-ghost font-mono tracking-wide">
-                  <span>ID:0x7F3A</span>
-                  <span>LAT:12ms</span>
-                  <span>MEM:2.4MB</span>
+                  <motion.span
+                    animate={{ opacity: [0.5, 1, 0.5] }}
+                    transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                  >
+                    ID:0x7F3A
+                  </motion.span>
+                  <motion.span
+                    animate={{ opacity: [0.5, 1, 0.5] }}
+                    transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut", delay: 0.8 }}
+                  >
+                    LAT:12ms
+                  </motion.span>
+                  <motion.span
+                    animate={{ opacity: [0.5, 1, 0.5] }}
+                    transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut", delay: 1.5 }}
+                  >
+                    MEM:2.4MB
+                  </motion.span>
                 </div>
                 <div className="flex items-center gap-1">
                   {[...Array(5)].map((_, i) => (
-                    <div 
+                    <motion.div 
                       key={i}
-                      className="w-1 h-1 bg-intent-primary/40"
-                      style={{
-                        opacity: i < 3 ? 1 : 0.3,
+                      className="w-1 h-1 bg-intent-primary"
+                      animate={{ 
+                        opacity: [0.2, i < 3 ? 1 : 0.5, 0.2],
+                        scale: [1, 1.2, 1],
+                      }}
+                      transition={{ 
+                        duration: 1.8, 
+                        repeat: Infinity, 
+                        ease: "easeInOut",
+                        delay: i * 0.15,
                       }}
                     />
                   ))}

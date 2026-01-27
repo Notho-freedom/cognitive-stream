@@ -113,24 +113,43 @@ export function FuturisticFrame({
       >
         <svg width={cornerSize + 8} height={cornerSize + 8} className="overflow-visible">
           {/* Diagonal cut line */}
-          <line 
+          <motion.line 
             x1="0" y1={cornerSize} 
             x2={cornerSize} y2="0" 
             stroke={colors.glow}
             strokeWidth="1.5"
             style={{ filter: `drop-shadow(0 0 3px ${colors.glow})` }}
+            animate={{ 
+              strokeOpacity: [0.7, 1, 0.7],
+            }}
+            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
           />
-          {/* Corner dot */}
-          <circle 
+          {/* Corner dot - pulsing */}
+          <motion.circle 
             cx={cornerSize - 2} 
             cy="2" 
             r="2" 
             fill={colors.glow}
             style={{ filter: `drop-shadow(0 0 4px ${colors.glow})` }}
+            animate={{ 
+              r: [2, 2.5, 2],
+              opacity: [0.8, 1, 0.8],
+            }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
           />
-          {/* Tech tick marks */}
-          <line x1="0" y1={cornerSize - 4} x2="0" y2={cornerSize + 4} stroke={colors.main} strokeWidth="1" opacity="0.5" />
-          <line x1={cornerSize - 4} y1="0" x2={cornerSize + 4} y2="0" stroke={colors.main} strokeWidth="1" opacity="0.5" />
+          {/* Tech tick marks - animated */}
+          <motion.line 
+            x1="0" y1={cornerSize - 4} x2="0" y2={cornerSize + 4} 
+            stroke={colors.main} strokeWidth="1" 
+            animate={{ opacity: [0.3, 0.7, 0.3] }}
+            transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
+          />
+          <motion.line 
+            x1={cornerSize - 4} y1="0" x2={cornerSize + 4} y2="0" 
+            stroke={colors.main} strokeWidth="1"
+            animate={{ opacity: [0.3, 0.7, 0.3] }}
+            transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
+          />
         </svg>
       </motion.div>
 
@@ -142,19 +161,28 @@ export function FuturisticFrame({
         transition={{ delay: 0.15 }}
       >
         <svg width={cornerSize + 8} height={cornerSize + 8} className="overflow-visible">
-          <line 
+          <motion.line 
             x1="8" y1={cornerSize + 8} 
             x2={cornerSize + 8} y2="8" 
             stroke={colors.glow}
             strokeWidth="1.5"
             style={{ filter: `drop-shadow(0 0 3px ${colors.glow})` }}
+            animate={{ 
+              strokeOpacity: [0.7, 1, 0.7],
+            }}
+            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
           />
-          <circle 
+          <motion.circle 
             cx="10" 
             cy={cornerSize + 6} 
             r="2" 
             fill={colors.glow}
             style={{ filter: `drop-shadow(0 0 4px ${colors.glow})` }}
+            animate={{ 
+              r: [2, 2.5, 2],
+              opacity: [0.8, 1, 0.8],
+            }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
           />
         </svg>
       </motion.div>
@@ -238,15 +266,40 @@ export function FuturisticFrame({
         />
       )}
 
-      {/* Corner brackets - decorative */}
-      <div 
-        className="absolute top-1 right-2 w-3 h-3 border-t border-r opacity-40"
+      {/* Corner brackets - decorative with animation */}
+      <motion.div 
+        className="absolute top-1 right-2 w-3 h-3 border-t border-r"
         style={{ borderColor: colors.main }}
+        animate={{ opacity: [0.3, 0.6, 0.3] }}
+        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
       />
-      <div 
-        className="absolute bottom-1 left-2 w-3 h-3 border-b border-l opacity-40"
+      <motion.div 
+        className="absolute bottom-1 left-2 w-3 h-3 border-b border-l"
         style={{ borderColor: colors.main }}
+        animate={{ opacity: [0.3, 0.6, 0.3] }}
+        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: 1.5 }}
       />
+
+      {/* Additional tech decorations - animated dots */}
+      <motion.div 
+        className="absolute top-3 right-8 flex gap-1"
+        animate={{ opacity: [0.2, 0.5, 0.2] }}
+        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
+      >
+        <div className="w-1 h-1 rounded-full" style={{ backgroundColor: colors.dim }} />
+        <div className="w-1 h-1 rounded-full" style={{ backgroundColor: colors.main }} />
+        <div className="w-1 h-1 rounded-full" style={{ backgroundColor: colors.dim }} />
+      </motion.div>
+
+      <motion.div 
+        className="absolute bottom-3 left-8 flex gap-1"
+        animate={{ opacity: [0.2, 0.5, 0.2] }}
+        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 1 }}
+      >
+        <div className="w-1 h-1 rounded-full" style={{ backgroundColor: colors.dim }} />
+        <div className="w-1 h-1 rounded-full" style={{ backgroundColor: colors.main }} />
+        <div className="w-1 h-1 rounded-full" style={{ backgroundColor: colors.dim }} />
+      </motion.div>
     </div>
   );
 }
