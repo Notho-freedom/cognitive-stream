@@ -12,3 +12,6 @@ export { FuturisticFrame } from './FuturisticFrame';
 
 export { NotificationQueue, NotificationProvider, useNotifications } from './NotificationQueue';
 export type { CognitiveNotification, NotificationPriority } from './NotificationQueue';
+
+export { CommandInput } from './CommandInput';
+export type { CommandSuggestion } from './CommandInput';
