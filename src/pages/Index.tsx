@@ -6,7 +6,8 @@ import {
   NotificationProvider, 
   NotificationQueue, 
   useNotifications,
-  NotificationPriority 
+  NotificationPriority,
+  CommandInput,
 } from '@/components/cognitive';
 
 const DEMO_RESPONSES = [
@@ -85,6 +86,12 @@ function DemoContent() {
     <>
       {/* Notification Queue */}
       <NotificationQueue position="top-right" />
+      
+      {/* Command Input (Cmd/Ctrl + K) */}
+      <CommandInput 
+        onSubmit={(query) => console.log('Search:', query)}
+        onSelect={(s) => console.log('Selected:', s.label)}
+      />
 
       <div className="relative z-10 w-full max-w-2xl mx-auto">
         {/* Header */}
