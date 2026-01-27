@@ -36,5 +36,5 @@ export type {
 export { AI_EXAMPLES } from './examples.config';
 
 // Config Utilities
-export { ConfigUtils } from './config.utils';
-export type { ValidationResult } from './config.utils';
+export { ConfigUtils } from './components/cognitive/config.utils';
+export type { ValidationResult } from './components/cognitive/config.utils';
