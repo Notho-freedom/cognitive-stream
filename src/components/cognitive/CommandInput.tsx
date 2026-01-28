@@ -261,7 +261,7 @@ export const CommandInput = forwardRef<HTMLDivElement, CommandInputProps>(
                       {/* Content area */}
                       <div className="min-h-[60px] mb-5">
                         {/* Scan line animation */}
-                        <motion.div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-intent-primary to-transparent opacity-60" initial={{ y: 0 }} animate={{ y: [0, 300, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} />
+                        {/*<motion.div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-intent-primary to-transparent opacity-60" initial={{ y: 0 }} animate={{ y: [0, 300, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} />*/}
 
                         {/* Input area */}
                         <div className="relative flex items-center gap-3 p-4 border-b border-intent-neutral/20">
