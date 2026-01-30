@@ -163,15 +163,41 @@ export function useCognitiveChat() {
   const handleAction = useCallback((action: ActionPayload) => {
     console.log('Action received:', action);
     
-    // Déterminer si l'action nécessite une confirmation manuelle
-    if (requiresManualConfirmation(action)) {
-      // Stocker l'action en attente pour envoi manuel
+    const actionType = action.payload.actionType as string;
+    const formData = action.payload.formData as Record<string, unknown> | undefined;
+    
+    // Log form data if present
+    if (formData && Object.keys(formData).length > 0) {
+      console.log('Form data collected:', formData);
+    }
+    
+    // Button clicks with form data are auto-submitted
+    if (actionType === 'button-click' || actionType === 'form-submit') {
+      // Build a descriptive message with form data
+      let actionMessage = `Action: ${action.id}`;
+      if (formData && Object.keys(formData).length > 0) {
+        actionMessage += ` avec données: ${JSON.stringify(formData)}`;
+      }
+      sendMessage(actionMessage, action);
+      return;
+    }
+    
+    // Input submit (Enter key) - auto-submit
+    if (actionType === 'input-submit') {
+      const actionMessage = `Soumission: ${action.id} - ${JSON.stringify(action.payload)}`;
+      sendMessage(actionMessage, action);
+      return;
+    }
+    
+    // Other actions that might need manual confirmation
+    if (actionType === 'list-select' || actionType === 'input-change') {
+      // Store pending action for manual confirmation
       setState(prev => ({
         ...prev,
         pendingAction: action,
       }));
     } else {
-      // Envoyer automatiquement les actions de type bouton, choix, etc.
+      // Default: send action immediately
       const actionMessage = `Action: ${action.id} - ${JSON.stringify(action.payload)}`;
       sendMessage(actionMessage, action);
     }

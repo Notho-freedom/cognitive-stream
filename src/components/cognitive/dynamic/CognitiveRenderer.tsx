@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { CognitiveFormProvider } from './CognitiveFormContext';
 import type { CognitiveUISchema, CognitiveBlock, ActionPayload } from './types';
 import {
   CogText,
@@ -91,10 +92,21 @@ function renderBlock(block: CognitiveBlock, onAction?: (action: ActionPayload) =
   }
 }
 
+/**
+ * CognitiveRenderer renders a schema of UI blocks with shared form state
+ * 
+ * All interactive components (inputs, choices, lists) register their values
+ * in a shared FormContext. When a button is clicked, it collects ALL values
+ * and sends them together as a single action payload.
+ * 
+ * This solves the problem of losing form data when clicking submit buttons.
+ */
 export function CognitiveRenderer({ schema, onAction, className }: CognitiveRendererProps) {
   return (
-    <div className={cn('space-y-4', className)}>
-      {schema.blocks.map((block, i) => renderBlock(block, onAction, i))}
-    </div>
+    <CognitiveFormProvider onAction={onAction}>
+      <div className={cn('space-y-4', className)}>
+        {schema.blocks.map((block, i) => renderBlock(block, onAction, i))}
+      </div>
+    </CognitiveFormProvider>
   );
 }
