@@ -1,10 +1,17 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { CognitiveUISchema, ActionPayload } from '@/components/cognitive/dynamic/types';
 import type { CognitiveNotification, NotificationType, NotificationPriority } from '@/components/cognitive/NotificationQueue';
+import { parseSystemActions, executeSystemAction, formatActionResult } from '@/lib/systemActions';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+}
+
+interface SystemExecutionResult {
+  action: string;
+  success: boolean;
+  output: string;
 }
 
 interface CognitiveChatState {
@@ -13,6 +20,8 @@ interface CognitiveChatState {
   thought: string | null;
   isLoading: boolean;
   isStreaming: boolean;
+  isExecutingSystem: boolean;
+  systemResults: SystemExecutionResult[];
   error: string | null;
   pendingAction: ActionPayload | null;
 }
@@ -29,6 +38,8 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     thought: null,
     isLoading: false,
     isStreaming: false,
+    isExecutingSystem: false,
+    systemResults: [],
     error: null,
     pendingAction: null,
   });
@@ -164,7 +175,29 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
 
       const assistantMessage: Message = { role: 'assistant', content: fullContent };
 
-      // NO success notification - reduces spam
+      // Check for system actions in the AI response
+      const systemActions = parseSystemActions(fullContent);
+      let systemResults: SystemExecutionResult[] = [];
+      
+      if (systemActions.length > 0 && window.cognitiveBridge) {
+        setState(prev => ({ ...prev, isExecutingSystem: true }));
+        notify('Exécution des commandes système...', 'alert', 'medium');
+        
+        for (const action of systemActions) {
+          const result = await executeSystemAction(action);
+          systemResults.push({
+            action: action.type,
+            success: result.success,
+            output: formatActionResult(result),
+          });
+          
+          if (!result.success) {
+            notify(`Échec: ${action.type}`, 'error', 'high');
+          }
+        }
+        
+        notify(`${systemResults.length} commande(s) exécutée(s)`, 'success', 'medium');
+      }
 
       setState(prev => ({
         ...prev,
@@ -173,6 +206,8 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
         schema: parsedResponse?.response?.schema || null,
         isLoading: false,
         isStreaming: false,
+        isExecutingSystem: false,
+        systemResults,
       }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -278,6 +313,8 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       thought: null,
       isLoading: false,
       isStreaming: false,
+      isExecutingSystem: false,
+      systemResults: [],
       error: null,
       pendingAction: null,
     });
