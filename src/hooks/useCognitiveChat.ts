@@ -1,5 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { CognitiveUISchema, ActionPayload } from '@/components/cognitive/dynamic/types';
+import type { CognitiveNotification } from '@/components/cognitive/NotificationQueue';
+
+// Priority type matching NotificationQueue
+type NotifyPriority = 'low' | 'medium' | 'high' | 'critical';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -13,22 +17,22 @@ interface CognitiveChatState {
   isLoading: boolean;
   isStreaming: boolean;
   error: string | null;
-  pendingAction: ActionPayload | null; // Action en attente de confirmation manuelle
+  pendingAction: ActionPayload | null;
 }
+
+// Notification callback type
+type NotificationPushFn = (notification: Omit<CognitiveNotification, 'id' | 'timestamp'>) => string;
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
-// Déterminer si une action nécessite une confirmation manuelle
+// Determine if an action needs manual confirmation
 function requiresManualConfirmation(action: ActionPayload): boolean {
   const actionType = action.payload.actionType as string;
-  
-  // Actions qui nécessitent un input supplémentaire
   const manualActions = ['list-select', 'input-change'];
-  
   return manualActions.includes(actionType);
 }
 
-export function useCognitiveChat() {
+export function useCognitiveChat(notificationPush?: NotificationPushFn) {
   const [state, setState] = useState<CognitiveChatState>({
     messages: [],
     schema: null,
@@ -39,11 +43,33 @@ export function useCognitiveChat() {
     pendingAction: null,
   });
 
+  // Store notification push function in a ref to avoid dependency issues
+  const notifyRef = useRef(notificationPush);
+  useEffect(() => {
+    notifyRef.current = notificationPush;
+  }, [notificationPush]);
+
+  // Helper to push notifications
+  const notify = useCallback((
+    message: string,
+    priority: NotifyPriority = 'medium',
+    options?: { action?: { label: string; onClick: () => void } }
+  ) => {
+    if (notifyRef.current) {
+      notifyRef.current({
+        message,
+        priority,
+        dismissible: true,
+        ...options,
+      });
+    }
+  }, []);
+
   const sendMessage = useCallback(async (input: string, action?: ActionPayload) => {
-    // Construire le message utilisateur
+    // Build user message
     let messageContent = input;
     
-    // Si une action est fournie, l'inclure dans le message
+    // Include action in message if provided
     if (action) {
       messageContent = JSON.stringify({
         text: input,
@@ -64,8 +90,11 @@ export function useCognitiveChat() {
       error: null,
       schema: null,
       thought: null,
-      pendingAction: null, // Effacer l'action en attente
+      pendingAction: null,
     }));
+
+    // Notify user that processing started
+    notify('Traitement de votre demande...', 'low');
 
     try {
       const response = await fetch(CHAT_URL, {
@@ -81,8 +110,10 @@ export function useCognitiveChat() {
 
       if (!response.ok) {
         if (response.status === 429) {
+          notify('Limite de requêtes atteinte. Réessayez plus tard.', 'high');
           throw new Error('Rate limit exceeded. Please try again later.');
         }
+        notify(`Erreur serveur: ${response.status}`, 'high');
         throw new Error(`Request failed: ${response.status}`);
       }
 
@@ -137,9 +168,13 @@ export function useCognitiveChat() {
         }
       } catch (e) {
         console.error('Failed to parse AI response:', e);
+        notify('Erreur lors de l\'analyse de la réponse', 'medium');
       }
 
       const assistantMessage: Message = { role: 'assistant', content: fullContent };
+
+      // Success notification
+      notify('Réponse générée avec succès', 'low');
 
       setState(prev => ({
         ...prev,
@@ -150,16 +185,19 @@ export function useCognitiveChat() {
         isStreaming: false,
       }));
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      notify(`Erreur: ${errorMessage}`, 'high');
+      
       setState(prev => ({
         ...prev,
         isLoading: false,
         isStreaming: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
       }));
     }
-  }, [state.messages]);
+  }, [state.messages, notify]);
 
-  // Gérer les actions des composants
+  // Handle component actions
   const handleAction = useCallback((action: ActionPayload) => {
     console.log('Action received:', action);
     
@@ -169,10 +207,14 @@ export function useCognitiveChat() {
     // Log form data if present
     if (formData && Object.keys(formData).length > 0) {
       console.log('Form data collected:', formData);
+      notify(`Données collectées: ${Object.keys(formData).length} champ(s)`, 'low');
     }
     
     // Button clicks with form data are auto-submitted
     if (actionType === 'button-click' || actionType === 'form-submit') {
+      // Notify about form submission
+      notify('Envoi des données...', 'medium');
+      
       // Build a descriptive message with form data
       let actionMessage = `Action: ${action.id}`;
       if (formData && Object.keys(formData).length > 0) {
@@ -189,6 +231,31 @@ export function useCognitiveChat() {
       return;
     }
     
+    // Timer complete
+    if (actionType === 'timer-complete') {
+      notify('Timer terminé!', 'high', {
+        action: {
+          label: 'Redémarrer',
+          onClick: () => sendMessage(`Redémarrer le timer ${action.id}`, action),
+        },
+      });
+      return;
+    }
+    
+    // Table row selection
+    if (actionType === 'table-row-select') {
+      const rowData = action.payload.rowData as string[];
+      notify(`Ligne sélectionnée: ${rowData[0] || 'N/A'}`, 'low');
+      sendMessage(`Sélection table: ligne ${action.payload.rowIndex}`, action);
+      return;
+    }
+    
+    // Alert actions
+    if (actionType === 'alert-action') {
+      sendMessage(`Action alerte: ${action.id}`, action);
+      return;
+    }
+    
     // Other actions that might need manual confirmation
     if (actionType === 'list-select' || actionType === 'input-change') {
       // Store pending action for manual confirmation
@@ -201,9 +268,9 @@ export function useCognitiveChat() {
       const actionMessage = `Action: ${action.id} - ${JSON.stringify(action.payload)}`;
       sendMessage(actionMessage, action);
     }
-  }, [sendMessage]);
+  }, [sendMessage, notify]);
 
-  // Confirmer et envoyer une action en attente avec un message personnalisé
+  // Confirm and send pending action with custom message
   const confirmAction = useCallback((customMessage?: string) => {
     if (!state.pendingAction) return;
     
@@ -212,6 +279,7 @@ export function useCognitiveChat() {
   }, [state.pendingAction, sendMessage]);
 
   const reset = useCallback(() => {
+    notify('Conversation réinitialisée', 'low');
     setState({
       messages: [],
       schema: null,
@@ -221,7 +289,7 @@ export function useCognitiveChat() {
       error: null,
       pendingAction: null,
     });
-  }, []);
+  }, [notify]);
 
   return {
     ...state,

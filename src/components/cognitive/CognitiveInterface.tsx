@@ -5,11 +5,8 @@ import { StateIndicator } from './StateIndicator';
 import { ThoughtStream } from './ThoughtStream';
 import { CognitiveRenderer } from './dynamic/CognitiveRenderer';
 import { useCognitiveChat } from '@/hooks/useCognitiveChat';
+import { useNotifications } from './NotificationQueue';
 import { cn } from '@/lib/utils';
-
-interface CognitiveInterfaceProps {
-  className?: string;
-}
 
 // Mapping des largeurs contrôlées par l'IA
 const widthClasses = {
@@ -30,8 +27,16 @@ const maxHeightClasses = {
   screen: 'max-h-[90vh]', // Quasi plein écran
 };
 
+interface CognitiveInterfaceProps {
+  className?: string;
+}
+
 export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
   const [input, setInput] = useState('');
+  
+  // Get notification push function
+  const { push: notifyPush } = useNotifications();
+  
   const { 
     messages, 
     schema, 
@@ -39,12 +44,12 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     isLoading, 
     isStreaming, 
     error,
-    pendingAction, // Action en attente de confirmation
+    pendingAction,
     sendMessage, 
     handleAction,
-    confirmAction, // Confirmer l'action en attente
+    confirmAction,
     reset 
-  } = useCognitiveChat();
+  } = useCognitiveChat(notifyPush);
 
   // Auto-remplir l'input avec un contexte quand une action est en attente
   useEffect(() => {
