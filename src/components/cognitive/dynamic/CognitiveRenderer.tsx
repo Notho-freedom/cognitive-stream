@@ -1,3 +1,4 @@
+import { cn } from '@/lib/utils';
 import type { CognitiveUISchema, CognitiveBlock, ActionPayload } from './types';
 import {
   CogText,
@@ -92,7 +93,7 @@ function renderBlock(block: CognitiveBlock, onAction?: (action: ActionPayload) =
 
 export function CognitiveRenderer({ schema, onAction, className }: CognitiveRendererProps) {
   return (
-    <div className={className}>
+    <div className={cn('space-y-4', className)}>
       {schema.blocks.map((block, i) => renderBlock(block, onAction, i))}
     </div>
   );
