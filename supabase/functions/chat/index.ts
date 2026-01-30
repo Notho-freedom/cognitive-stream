@@ -4,7 +4,8 @@ import { callGeminiFlash } from "./geminiFlash.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 // Configuration des modèles avec fallback automatique
@@ -17,7 +18,7 @@ interface ModelConfig {
 }
 
 const MODELS: ModelConfig[] = [
-  // Groq - essayer d'abord un modèle léger (souvent moins limité), puis un modèle plus lourd.
+  // Groq - essayer d'abord un modèle léger (souvent moins limité)
   {
     name: "llama-3.1-8b-instant",
     provider: "groq",
@@ -33,27 +34,28 @@ const MODELS: ModelConfig[] = [
     priority: 2,
   },
   // DeepSeek - fallback payant
-  { 
-    name: "deepseek-chat", 
+  {
+    name: "deepseek-chat",
     provider: "deepseek",
     endpoint: "https://api.deepseek.com/v1/chat/completions",
     maxTokens: 8192,
     priority: 3,
   },
-  // Lovable AI - fallback final (gratuit avec quota)
-  { 
-    name: "google/gemini-3-flash-preview", 
+  // Lovable AI - fallback gratuit avec quota
+  {
+    name: "google/gemini-3-flash-preview",
     provider: "lovable",
     endpoint: "https://ai.gateway.lovable.dev/v1/chat/completions",
     maxTokens: 8192,
-    priority: 99,
-  },  
+    priority: 4,
+  },
+  // Gemini Flash - fallback final via Vertex AI
   {
     name: "gemini-2.5-flash-lite",
     provider: "geminiFlash",
     endpoint: "", // pas utilisé, on appelle directement le module
     maxTokens: 8192,
-    priority: 100,
+    priority: 5,
   },
 ];
 
@@ -61,29 +63,69 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function getApiKey(provider: "groq" | "deepseek" | "lovable" | "geminiFlash"): string | undefined {
+function getApiKey(
+  provider: "groq" | "deepseek" | "lovable" | "geminiFlash"
+): string | undefined {
   if (provider === "groq") {
     return Deno.env.get("GROQ_API_KEY");
   }
   if (provider === "deepseek") {
     return Deno.env.get("DEEPSEEK_API_KEY");
   }
-  return Deno.env.get("LOVABLE_API_KEY");
+  if (provider === "lovable") {
+    return Deno.env.get("LOVABLE_API_KEY");
+  }
+  // GeminiFlash utilise GOOGLE_APPLICATION_CREDENTIALS
+  return undefined;
 }
 
-function streamFromString(str: string): ReadableStream<Uint8Array> {
+/**
+ * Crée un stream SSE à partir d'une réponse texte
+ */
+function createSSEStream(text: string): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+
   return new ReadableStream({
     start(controller) {
-      const encoder = new TextEncoder();
-      const chunk = encoder.encode(str);
-      // On transforme en ArrayBuffer standard
-      controller.enqueue(new Uint8Array(chunk.buffer.slice(0)));
+      // Simuler un stream SSE avec le texte complet
+      const words = text.split(" ");
+      let buffer = "";
+
+      for (let i = 0; i < words.length; i++) {
+        buffer += (i > 0 ? " " : "") + words[i];
+
+        // Envoyer par chunks pour simuler le streaming
+        if (i % 5 === 0 || i === words.length - 1) {
+          const chunk = JSON.stringify({
+            choices: [
+              {
+                delta: { content: buffer },
+                finish_reason: null,
+              },
+            ],
+          });
+
+          controller.enqueue(encoder.encode(`data: ${chunk}\n\n`));
+          buffer = "";
+        }
+      }
+
+      // Message de fin
+      const finalChunk = JSON.stringify({
+        choices: [
+          {
+            delta: {},
+            finish_reason: "stop",
+          },
+        ],
+      });
+
+      controller.enqueue(encoder.encode(`data: ${finalChunk}\n\n`));
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       controller.close();
     },
   });
 }
-
-
 
 async function tryModel(
   model: ModelConfig,
@@ -96,35 +138,62 @@ async function tryModel(
   status?: number;
   isRateLimit?: boolean;
 }> {
+  // Cas spécial pour GeminiFlash
+  if (model.provider === "geminiFlash") {
+    console.log(`[Try] GeminiFlash/${model.name}`);
 
-if (model.provider === "geminiFlash") {
-  console.log(`[Try] GeminiFlash/${model.name}`);
-  const response = await callGeminiFlash(model.name, {
-    messages: [
-      { role: "system", content: systemPrompt },
-      ...messages
-    ]
-  });
+    try {
+      const geminiResponse = await callGeminiFlash(model.name, {
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+      });
 
-  if (!response.success) {
-    console.error(`[Error] GeminiFlash/${model.name}:`, response.error);
-    return { success: false, error: response.error, status: response.status };
+      if (!geminiResponse.success) {
+        console.error(
+          `[Error] GeminiFlash/${model.name}:`,
+          geminiResponse.error
+        );
+        return {
+          success: false,
+          error: geminiResponse.error,
+          status: geminiResponse.status,
+        };
+      }
+
+      console.log(`[OK] GeminiFlash/${model.name}`);
+
+      // Créer une vraie Response avec un stream SSE
+      const stream = createSSEStream(geminiResponse.text || "");
+
+      return {
+        success: true,
+        response: new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          },
+        }),
+      };
+    } catch (error) {
+      console.error(`[Error] GeminiFlash/${model.name}:`, error);
+      return {
+        success: false,
+        error: String(error),
+        status: 500,
+      };
+    }
   }
 
-  console.log(`[OK] GeminiFlash/${model.name}`);
-
-  return {
-    success: true,
-    response: { body: streamFromString(JSON.stringify(response.data)) }
-  };
-}
-
-
+  // Cas standard pour les autres providers (Groq, DeepSeek, Lovable)
   const apiKey = getApiKey(model.provider);
-  
+
   if (!apiKey) {
     console.warn(`[${model.provider}] API key not configured`);
-    return { success: false, error: `${model.provider} API key missing`, status: 500 };
+    return {
+      success: false,
+      error: `${model.provider} API key missing`,
+      status: 500,
+    };
   }
 
   console.log(`[Try] ${model.provider}/${model.name}`);
@@ -133,9 +202,9 @@ if (model.provider === "geminiFlash") {
     const response = await fetch(model.endpoint, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "Accept": "text/event-stream, application/json",
+        Accept: "text/event-stream, application/json",
       },
       body: JSON.stringify({
         model: model.name,
@@ -148,18 +217,26 @@ if (model.provider === "geminiFlash") {
 
     if (response.status === 429) {
       console.warn(`[429] ${model.provider}/${model.name} rate limited`);
-      return { success: false, error: "Rate limit", isRateLimit: true, status: 429 };
+      return {
+        success: false,
+        error: "Rate limit",
+        isRateLimit: true,
+        status: 429,
+      };
     }
 
     if (!response.ok) {
       const err = await response.text();
       console.error(`[${response.status}] ${model.provider}/${model.name}:`, err);
-      return { success: false, error: `HTTP ${response.status}`, status: response.status };
+      return {
+        success: false,
+        error: `HTTP ${response.status}`,
+        status: response.status,
+      };
     }
 
     console.log(`[OK] ${model.provider}/${model.name}`);
     return { success: true, response };
-
   } catch (error) {
     console.error(`[Error] ${model.provider}/${model.name}:`, error);
     return { success: false, error: String(error), status: 500 };
@@ -181,21 +258,22 @@ serve(async (req) => {
     let lastModel: string | undefined;
 
     for (const model of MODELS) {
-      // Petit retry/backoff uniquement sur 429 (utile quand Groq est temporairement limité)
+      // Retry avec backoff uniquement sur 429
       const first = await tryModel(model, messages, prompt);
-      const result =
-        first.isRateLimit
-          ? (await (async () => {
-              await sleep(650);
-              return tryModel(model, messages, prompt);
-            })())
-          : first;
+      const result = first.isRateLimit
+        ? await (async () => {
+            await sleep(650);
+            return tryModel(model, messages, prompt);
+          })()
+        : first;
 
       if (result.success && result.response) {
         return new Response(result.response.body, {
           headers: {
             ...corsHeaders,
             "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
             "X-AI-Model": model.name,
             "X-AI-Provider": model.provider,
           },
@@ -206,7 +284,7 @@ serve(async (req) => {
       lastStatus = result.status ?? 503;
       lastProvider = model.provider;
       lastModel = model.name;
-      
+
       if (!result.isRateLimit) {
         await sleep(300);
       }
@@ -219,17 +297,15 @@ serve(async (req) => {
         last: { provider: lastProvider, model: lastModel, status: lastStatus },
       }),
       {
-        // Si on finit sur un 402/429, autant le propager au client pour un message utile.
         status: lastStatus === 402 || lastStatus === 429 ? lastStatus : 503,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
-
   } catch (error) {
     console.error("[Fatal]:", error);
-    return new Response(
-      JSON.stringify({ error: String(error) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: String(error) }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
