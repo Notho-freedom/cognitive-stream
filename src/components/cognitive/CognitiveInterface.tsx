@@ -33,6 +33,8 @@ interface CognitiveInterfaceProps {
 
 export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
   const [input, setInput] = useState('');
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [inputHistory, setInputHistory] = useState<string[]>([]);
   
   // Get notification push function
   const { push: notifyPush } = useNotifications();
@@ -59,9 +61,6 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
       
       if (actionType === 'list-select') {
         setInput(`J'ai sélectionné: "${value}". `);
-      } else if (actionType === 'input-change') {
-        // Pour les inputs, la valeur est déjà dans le payload
-        // L'utilisateur peut compléter son message
       }
     }
   }, [pendingAction]);
@@ -70,18 +69,61 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
   const layout = schema?.layout || {};
   const widthClass = widthClasses[layout.width || 'md'];
   const maxHeightClass = layout.maxHeight ? maxHeightClasses[layout.maxHeight] : '';
-  const isScrollable = layout.scrollable !== false; // Par défaut true
-  const isCentered = layout.centered !== false; // Par défaut true
+  const isScrollable = layout.scrollable !== false;
+  const isCentered = layout.centered !== false;
+
+  // Handle keyboard navigation for history
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const userMessages = messages.filter(m => m.role === 'user').map(m => {
+        try {
+          const parsed = JSON.parse(m.content);
+          return parsed.text || m.content;
+        } catch {
+          return m.content;
+        }
+      });
+      
+      if (userMessages.length > 0) {
+        const newIndex = historyIndex < userMessages.length - 1 ? historyIndex + 1 : historyIndex;
+        setHistoryIndex(newIndex);
+        setInput(userMessages[userMessages.length - 1 - newIndex] || '');
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (historyIndex > 0) {
+        const userMessages = messages.filter(m => m.role === 'user').map(m => {
+          try {
+            const parsed = JSON.parse(m.content);
+            return parsed.text || m.content;
+          } catch {
+            return m.content;
+          }
+        });
+        const newIndex = historyIndex - 1;
+        setHistoryIndex(newIndex);
+        setInput(userMessages[userMessages.length - 1 - newIndex] || '');
+      } else if (historyIndex === 0) {
+        setHistoryIndex(-1);
+        setInput('');
+      }
+    } else if (e.key === 'Escape') {
+      setHistoryIndex(-1);
+      setInput('');
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
     
-    // Si une action est en attente, la confirmer avec le message
+    // Reset history navigation
+    setHistoryIndex(-1);
+    
     if (pendingAction) {
       confirmAction(input.trim());
     } else {
-      // Sinon, envoyer un message normal
       sendMessage(input.trim());
     }
     
@@ -93,16 +135,16 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     if (isStreaming) return 'responding';
     if (error) return 'warning';
     if (schema) return 'success';
-    if (pendingAction) return 'listening'; // En attente d'input
+    if (pendingAction) return 'listening';
     return 'idle';
   };
 
   const getStateLabel = () => {
-    if (isLoading && !isStreaming) return 'TRAITEMENT...';
-    if (isStreaming) return 'RÉPONSE EN COURS';
+    if (isLoading && !isStreaming) return 'TRAITEMENT';
+    if (isStreaming) return 'RÉPONSE';
     if (error) return 'ERREUR';
     if (schema) return 'TERMINÉ';
-    if (pendingAction) return 'EN ATTENTE D\'INPUT';
+    if (pendingAction) return 'ATTENTE';
     return 'PRÊT';
   };
 
@@ -274,10 +316,14 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                 <input
                   type="text"
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    setHistoryIndex(-1);
+                  }}
+                  onKeyDown={handleKeyDown}
                   placeholder={
                     pendingAction 
-                      ? "Complétez votre message et appuyez sur Entrée..." 
+                      ? "Complétez votre message..." 
                       : "Pose une question à l'IA..."
                   }
                   disabled={isLoading}
@@ -294,6 +340,16 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   }}
                   autoFocus={!!pendingAction}
                 />
+                {/* History indicator */}
+                {historyIndex >= 0 && (
+                  <motion.span
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] text-intent-primary/60 uppercase tracking-wider"
+                  >
+                    ↑{historyIndex + 1}
+                  </motion.span>
+                )}
               </div>
               
               <button
@@ -320,9 +376,9 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                     ◐
                   </motion.span>
                 ) : pendingAction ? (
-                  '✓ Confirmer'
+                  '✓ OK'
                 ) : (
-                  'Envoyer'
+                  '→'
                 )}
               </button>
             </div>
