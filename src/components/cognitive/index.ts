@@ -11,7 +11,7 @@ export type { ResponseState } from './ResponseCard';
 export { FuturisticFrame } from './FuturisticFrame';
 
 export { NotificationQueue, NotificationProvider, useNotifications } from './NotificationQueue';
-export type { CognitiveNotification, NotificationPriority } from './NotificationQueue';
+export type { CognitiveNotification, NotificationPriority, NotificationType } from './NotificationQueue';
 
 export { CommandInput } from './CommandInput';
 export type { CommandSuggestion } from './CommandInput';
