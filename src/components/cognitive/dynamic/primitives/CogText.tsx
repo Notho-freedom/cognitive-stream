@@ -7,11 +7,11 @@ interface CogTextProps extends Omit<TextBlock, 'type'> {
 }
 
 const variantStyles: Record<string, string> = {
-  body: 'text-sm text-text-primary font-light leading-relaxed tracking-wide',
-  heading: 'text-lg text-text-primary font-medium tracking-wide uppercase',
-  label: 'text-xs text-intent-primary uppercase tracking-[0.2em] font-medium',
-  caption: 'text-[10px] text-text-ghost tracking-wider',
-  code: 'text-xs text-intent-primary font-mono bg-surface-raised/50 px-2 py-1 rounded',
+  body: 'text-sm text-[hsl(var(--text-primary))] font-light leading-relaxed tracking-wide',
+  heading: 'text-lg text-[hsl(var(--text-primary))] font-medium tracking-wide uppercase',
+  label: 'text-xs text-[hsl(var(--intent-primary))] uppercase tracking-[0.2em] font-medium',
+  caption: 'text-[10px] text-[hsl(var(--text-ghost))] tracking-wider',
+  code: 'text-xs text-[hsl(var(--intent-primary))] font-mono bg-[hsl(var(--surface-glass)/0.5)] px-2 py-1 rounded',
 };
 
 export function CogText({ content, variant = 'body', streaming, className }: CogTextProps) {
