@@ -21,7 +21,16 @@ export function CogList({
   const handleSelect = (index: number, item: string) => {
     if (!selectable) return;
     setSelectedIndex(index);
-    onAction?.({ id: id || 'list', payload: { index, item } });
+    
+    // Envoyer l'action avec le type list-select (nécessite confirmation manuelle)
+    onAction?.({ 
+      id: id || 'list', 
+      payload: { 
+        actionType: 'list-select', // Type d'action pour identification
+        index, 
+        item 
+      } 
+    });
   };
 
   return (

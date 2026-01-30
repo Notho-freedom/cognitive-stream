@@ -32,7 +32,15 @@ export function CogChoice({
     }
     
     setSelected(newSelected);
-    onAction?.({ id, payload: { value: multiple ? newSelected : newSelected[0] } });
+    
+    // Envoi automatique pour les choix
+    onAction?.({ 
+      id, 
+      payload: { 
+        actionType: 'choice-select', // Auto-submit
+        value: multiple ? newSelected : newSelected[0] 
+      } 
+    });
   };
 
   return (

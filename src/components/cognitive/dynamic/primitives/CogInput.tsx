@@ -22,11 +22,27 @@ export function CogInput({
 
   const handleChange = (val: string) => {
     setValue(val);
-    onAction?.({ id, payload: { value: val } });
+    
+    // Change = action manuelle (nécessite confirmation)
+    onAction?.({ 
+      id, 
+      payload: { 
+        actionType: 'input-change', // Manuel
+        value: val 
+      } 
+    });
   };
 
   const handleSubmit = () => {
-    onAction?.({ id, payload: { value, action: 'submit' } });
+    // Submit (Enter) = auto-submit
+    onAction?.({ 
+      id, 
+      payload: { 
+        actionType: 'input-submit', // Auto
+        value, 
+        action: 'submit' 
+      } 
+    });
   };
 
   const InputElement = inputType === 'textarea' ? 'textarea' : 'input';
