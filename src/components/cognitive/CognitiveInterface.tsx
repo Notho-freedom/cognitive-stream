@@ -13,12 +13,12 @@ interface CognitiveInterfaceProps {
 
 // Mapping des largeurs contrôlées par l'IA
 const widthClasses = {
-  xs: 'max-w-md',    // 448px - Petites infos, confirmations
-  sm: 'max-w-lg',    // 512px - Formulaires simples
-  md: 'max-w-2xl',   // 672px - Par défaut, équilibré
-  lg: 'max-w-4xl',   // 896px - Tableaux, grilles
-  xl: 'max-w-6xl',   // 1152px - Dashboards, visualisations
-  full: 'max-w-7xl', // 1280px - Pleine largeur
+  xs: 'w-[20vw]',    // 448px - Petites infos, confirmations
+  sm: 'w-[30vw]',    // 512px - Formulaires simples
+  md: 'w-[50vw]',   // 672px - Par défaut, équilibré
+  lg: 'w-[75vw]',   // 896px - Tableaux, grilles
+  xl: 'w-[90vw]',   // 1152px - Dashboards, visualisations
+  full: 'w-[95vw]', // 1280px - Pleine largeur
 };
 
 // Mapping des hauteurs maximales
@@ -102,7 +102,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
   };
 
   return (
-    <div className={cn('w-full', widthClass, isCentered && 'mx-auto', className)}>
+    <div className={cn(widthClass, isCentered && 'mx-auto', className)}>
       {/* Main Response Card */}
       <AnimatePresence mode="wait">
         {(isLoading || schema || error || thought) && (
