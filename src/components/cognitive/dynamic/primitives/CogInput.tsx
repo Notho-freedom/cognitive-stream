@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { useCognitiveForm } from '../CognitiveFormContext';
 import type { InputBlock, ActionPayload } from '../types';
 
 interface CogInputProps extends Omit<InputBlock, 'type'> {
@@ -19,30 +20,57 @@ export function CogInput({
 }: CogInputProps) {
   const [value, setValue] = useState(defaultValue);
   const [focused, setFocused] = useState(false);
+  
+  // Access form context if available
+  const formContext = useCognitiveForm();
+
+  // Register initial value and sync with form context
+  useEffect(() => {
+    if (formContext && id) {
+      formContext.setFieldValue(id, value);
+    }
+  }, [formContext, id, value]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (formContext && id) {
+        formContext.removeField(id);
+      }
+    };
+  }, [formContext, id]);
 
   const handleChange = (val: string) => {
     setValue(val);
     
-    // Change = action manuelle (nécessite confirmation)
-    onAction?.({ 
-      id, 
-      payload: { 
-        actionType: 'input-change', // Manuel
-        value: val 
-      } 
-    });
+    // Update form context (main storage)
+    if (formContext && id) {
+      formContext.setFieldValue(id, val);
+    }
+    
+    // Also notify parent for real-time updates if needed
+    // But don't require confirmation - value is stored in context
   };
 
   const handleSubmit = () => {
-    // Submit (Enter) = auto-submit
-    onAction?.({ 
-      id, 
-      payload: { 
-        actionType: 'input-submit', // Auto
-        value, 
-        action: 'submit' 
-      } 
-    });
+    // Submit on Enter key - send current value as standalone action
+    if (formContext) {
+      // Use form context to build action with all form data
+      const action = formContext.buildActionWithFormData(id, {
+        actionType: 'input-submit',
+        triggeredBy: id,
+      });
+      onAction?.(action);
+    } else {
+      // Fallback: standalone submit
+      onAction?.({ 
+        id, 
+        payload: { 
+          actionType: 'input-submit',
+          value, 
+        } 
+      });
+    }
   };
 
   const InputElement = inputType === 'textarea' ? 'textarea' : 'input';

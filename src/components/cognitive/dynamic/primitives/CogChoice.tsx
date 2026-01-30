@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { useCognitiveForm } from '../CognitiveFormContext';
 import type { ChoiceBlock, ActionPayload } from '../types';
 
 interface CogChoiceProps extends Omit<ChoiceBlock, 'type'> {
@@ -20,6 +21,26 @@ export function CogChoice({
     Array.isArray(defaultValue) ? defaultValue : defaultValue ? [defaultValue] : []
   );
 
+  // Access form context if available
+  const formContext = useCognitiveForm();
+
+  // Register initial value and sync with form context
+  useEffect(() => {
+    if (formContext && id) {
+      const value = multiple ? selected : selected[0] || '';
+      formContext.setFieldValue(id, value);
+    }
+  }, [formContext, id, selected, multiple]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (formContext && id) {
+        formContext.removeField(id);
+      }
+    };
+  }, [formContext, id]);
+
   const handleSelect = (value: string) => {
     let newSelected: string[];
     
@@ -33,14 +54,13 @@ export function CogChoice({
     
     setSelected(newSelected);
     
-    // Envoi automatique pour les choix
-    onAction?.({ 
-      id, 
-      payload: { 
-        actionType: 'choice-select', // Auto-submit
-        value: multiple ? newSelected : newSelected[0] 
-      } 
-    });
+    // Update form context (main storage)
+    if (formContext && id) {
+      formContext.setFieldValue(id, multiple ? newSelected : newSelected[0] || '');
+    }
+    
+    // Note: We don't send action on every selection anymore
+    // The button will collect all values when clicked
   };
 
   return (
