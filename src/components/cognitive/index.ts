@@ -15,3 +15,7 @@ export type { CognitiveNotification, NotificationPriority } from './Notification
 
 export { CommandInput } from './CommandInput';
 export type { CommandSuggestion } from './CommandInput';
+
+export { CognitiveInterface } from './CognitiveInterface';
+export { CognitiveRenderer } from './dynamic/CognitiveRenderer';
+export * from './dynamic/types';
