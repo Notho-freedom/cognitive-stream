@@ -98,9 +98,9 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                       <span className="text-[11px] uppercase tracking-[0.15em] text-intent-primary font-medium">
                         {schema?.metadata?.title || getStateLabel()}
                       </span>
-                      {/* Dynamic description from schema.metadata or fallback */}
-                      <span className="text-[9px] text-text-ghost tracking-wide max-w-[300px] truncate">
-                        {schema?.metadata?.description || 'COGNITIVE.UI.v1.0'}
+                      {/* Thought as description - shows internal reasoning */}
+                      <span className="text-[9px] text-text-ghost tracking-wide max-w-[300px] truncate" title={thought || undefined}>
+                        {thought || schema?.metadata?.description || 'COGNITIVE.UI.v1.0'}
                       </span>
                     </div>
                   </div>
@@ -128,18 +128,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   </div>
                 </div>
 
-                {/* Thought display */}
-                {thought && (
-                  <div className="mb-4 p-3 bg-intent-secondary/5 border border-intent-secondary/20" 
-                       style={{ clipPath: 'polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%)' }}>
-                    <span className="text-[9px] text-intent-secondary uppercase tracking-wider">
-                      PENSÉE INTERNE
-                    </span>
-                    <p className="text-xs text-text-ghost mt-1 font-light italic">
-                      {thought}
-                    </p>
-                  </div>
-                )}
+                {/* Thought is now displayed in header description - removed separate block */}
 
                 {/* Pending Action Notice */}
                 {pendingAction && (
