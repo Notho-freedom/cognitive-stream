@@ -13,9 +13,20 @@ interface CognitiveChatState {
   isLoading: boolean;
   isStreaming: boolean;
   error: string | null;
+  pendingAction: ActionPayload | null; // Action en attente de confirmation manuelle
 }
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
+
+// Déterminer si une action nécessite une confirmation manuelle
+function requiresManualConfirmation(action: ActionPayload): boolean {
+  const actionType = action.payload.actionType as string;
+  
+  // Actions qui nécessitent un input supplémentaire
+  const manualActions = ['list-select', 'input-change'];
+  
+  return manualActions.includes(actionType);
+}
 
 export function useCognitiveChat() {
   const [state, setState] = useState<CognitiveChatState>({
@@ -25,10 +36,25 @@ export function useCognitiveChat() {
     isLoading: false,
     isStreaming: false,
     error: null,
+    pendingAction: null,
   });
 
-  const sendMessage = useCallback(async (input: string) => {
-    const userMessage: Message = { role: 'user', content: input };
+  const sendMessage = useCallback(async (input: string, action?: ActionPayload) => {
+    // Construire le message utilisateur
+    let messageContent = input;
+    
+    // Si une action est fournie, l'inclure dans le message
+    if (action) {
+      messageContent = JSON.stringify({
+        text: input,
+        action: {
+          id: action.id,
+          payload: action.payload,
+        }
+      });
+    }
+    
+    const userMessage: Message = { role: 'user', content: messageContent };
     
     setState(prev => ({
       ...prev,
@@ -38,6 +64,7 @@ export function useCognitiveChat() {
       error: null,
       schema: null,
       thought: null,
+      pendingAction: null, // Effacer l'action en attente
     }));
 
     try {
@@ -132,10 +159,31 @@ export function useCognitiveChat() {
     }
   }, [state.messages]);
 
+  // Gérer les actions des composants
   const handleAction = useCallback((action: ActionPayload) => {
     console.log('Action received:', action);
-    // Can be extended to send actions back to the AI
-  }, []);
+    
+    // Déterminer si l'action nécessite une confirmation manuelle
+    if (requiresManualConfirmation(action)) {
+      // Stocker l'action en attente pour envoi manuel
+      setState(prev => ({
+        ...prev,
+        pendingAction: action,
+      }));
+    } else {
+      // Envoyer automatiquement les actions de type bouton, choix, etc.
+      const actionMessage = `Action: ${action.id} - ${JSON.stringify(action.payload)}`;
+      sendMessage(actionMessage, action);
+    }
+  }, [sendMessage]);
+
+  // Confirmer et envoyer une action en attente avec un message personnalisé
+  const confirmAction = useCallback((customMessage?: string) => {
+    if (!state.pendingAction) return;
+    
+    const message = customMessage || `Action: ${state.pendingAction.id}`;
+    sendMessage(message, state.pendingAction);
+  }, [state.pendingAction, sendMessage]);
 
   const reset = useCallback(() => {
     setState({
@@ -145,6 +193,7 @@ export function useCognitiveChat() {
       isLoading: false,
       isStreaming: false,
       error: null,
+      pendingAction: null,
     });
   }, []);
 
@@ -152,6 +201,7 @@ export function useCognitiveChat() {
     ...state,
     sendMessage,
     handleAction,
+    confirmAction,
     reset,
   };
 }

@@ -48,7 +48,15 @@ export function CogButton({
 
   const handleClick = () => {
     if (disabled || loading) return;
-    onAction?.({ id: actionId, payload: { action: 'click' } });
+    
+    // Envoi automatique pour les boutons
+    onAction?.({ 
+      id: actionId, 
+      payload: { 
+        actionType: 'button-click', // Auto-submit
+        action: 'click' 
+      } 
+    });
   };
 
   return (

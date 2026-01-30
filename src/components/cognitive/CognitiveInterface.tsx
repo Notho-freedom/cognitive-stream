@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FuturisticFrame } from './FuturisticFrame';
 import { StateIndicator } from './StateIndicator';
@@ -19,16 +19,41 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     thought,
     isLoading, 
     isStreaming, 
-    error, 
+    error,
+    pendingAction, // Action en attente de confirmation
     sendMessage, 
     handleAction,
+    confirmAction, // Confirmer l'action en attente
     reset 
   } = useCognitiveChat();
+
+  // Auto-remplir l'input avec un contexte quand une action est en attente
+  useEffect(() => {
+    if (pendingAction) {
+      const actionType = pendingAction.payload.actionType as string;
+      const value = pendingAction.payload.value || pendingAction.payload.item;
+      
+      if (actionType === 'list-select') {
+        setInput(`J'ai sélectionné: "${value}". `);
+      } else if (actionType === 'input-change') {
+        // Pour les inputs, la valeur est déjà dans le payload
+        // L'utilisateur peut compléter son message
+      }
+    }
+  }, [pendingAction]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-    sendMessage(input.trim());
+    
+    // Si une action est en attente, la confirmer avec le message
+    if (pendingAction) {
+      confirmAction(input.trim());
+    } else {
+      // Sinon, envoyer un message normal
+      sendMessage(input.trim());
+    }
+    
     setInput('');
   };
 
@@ -37,6 +62,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     if (isStreaming) return 'responding';
     if (error) return 'warning';
     if (schema) return 'success';
+    if (pendingAction) return 'listening'; // En attente d'input
     return 'idle';
   };
 
@@ -45,7 +71,8 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     if (isStreaming) return 'RÉPONSE EN COURS';
     if (error) return 'ERREUR';
     if (schema) return 'TERMINÉ';
-    return 'EN ATTENTE';
+    if (pendingAction) return 'EN ATTENTE D\'INPUT';
+    return 'PRÊT';
   };
 
   return (
@@ -112,6 +139,30 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   </div>
                 )}
 
+                {/* Pending Action Notice */}
+                {pendingAction && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mb-4 p-3 bg-intent-primary/10 border border-intent-primary/30"
+                    style={{ clipPath: 'polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%)' }}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <motion.div 
+                        className="w-2 h-2 bg-intent-primary rounded-full"
+                        animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }}
+                        transition={{ duration: 1.5, repeat: Infinity }}
+                      />
+                      <span className="text-[9px] text-intent-primary uppercase tracking-wider font-medium">
+                        ACTION EN ATTENTE
+                      </span>
+                    </div>
+                    <p className="text-xs text-text-secondary">
+                      Complétez votre message ci-dessous pour envoyer l'action
+                    </p>
+                  </motion.div>
+                )}
+
                 {/* Error display */}
                 {error && (
                   <div className="p-4 border border-intent-focus/30 bg-intent-focus/5"
@@ -150,6 +201,15 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                     <motion.span animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 2.5, repeat: Infinity, delay: 0.8 }}>
                       GROQ.AI
                     </motion.span>
+                    {pendingAction && (
+                      <motion.span 
+                        className="text-intent-primary"
+                        animate={{ opacity: [0.5, 1, 0.5] }} 
+                        transition={{ duration: 1.5, repeat: Infinity }}
+                      >
+                        ⏳ PENDING
+                      </motion.span>
+                    )}
                   </div>
                   <button
                     onClick={reset}
@@ -171,7 +231,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
       >
-        <FuturisticFrame variant="minimal">
+        <FuturisticFrame variant={pendingAction ? 'primary' : 'minimal'}>
           <div className="p-4">
             <div className="flex items-center gap-3">
               <div className="relative flex-1">
@@ -179,16 +239,24 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Pose une question à l'IA..."
+                  placeholder={
+                    pendingAction 
+                      ? "Complétez votre message et appuyez sur Entrée..." 
+                      : "Pose une question à l'IA..."
+                  }
                   disabled={isLoading}
                   className={cn(
                     'w-full bg-transparent text-text-primary placeholder:text-text-ghost/50',
                     'text-sm font-light tracking-wide px-4 py-3 outline-none',
-                    'border border-intent-neutral/20 focus:border-intent-primary/50 transition-colors',
+                    'border transition-colors',
+                    pendingAction 
+                      ? 'border-intent-primary/60' 
+                      : 'border-intent-neutral/20 focus:border-intent-primary/50',
                   )}
                   style={{
                     clipPath: 'polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%)',
                   }}
+                  autoFocus={!!pendingAction}
                 />
               </div>
               
@@ -197,8 +265,10 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                 disabled={isLoading || !input.trim()}
                 className={cn(
                   'px-6 py-3 text-xs uppercase tracking-wider font-medium transition-all',
-                  'bg-intent-primary/20 hover:bg-intent-primary/30 text-text-primary',
-                  'border border-intent-primary/50',
+                  pendingAction
+                    ? 'bg-intent-primary/30 hover:bg-intent-primary/40 border-intent-primary/70'
+                    : 'bg-intent-primary/20 hover:bg-intent-primary/30 border-intent-primary/50',
+                  'text-text-primary border',
                   'disabled:opacity-50 disabled:cursor-not-allowed',
                 )}
                 style={{
@@ -213,11 +283,23 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   >
                     ◐
                   </motion.span>
+                ) : pendingAction ? (
+                  '✓ Confirmer'
                 ) : (
                   'Envoyer'
                 )}
               </button>
             </div>
+            
+            {pendingAction && (
+              <motion.p 
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-2 text-[10px] text-intent-primary/70 tracking-wide"
+              >
+                💡 Appuyez sur Entrée pour confirmer votre sélection
+              </motion.p>
+            )}
           </div>
         </FuturisticFrame>
       </motion.form>
