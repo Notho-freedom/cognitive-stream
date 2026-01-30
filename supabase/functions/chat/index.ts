@@ -11,27 +11,49 @@ const corsHeaders = {
 // Configuration des modèles avec fallback automatique
 interface ModelConfig {
   name: string;
-  provider: "groq" | "deepseek" | "lovable" | "geminiFlash";
+  provider: "groq" | "deepseek" | "lovable" | "geminiFlash" | "poe";
   endpoint: string;
   maxTokens: number;
   priority: number;
 }
 
 const MODELS: ModelConfig[] = [
+  // Poe - Modèles premium accessibles via API
+  {
+    name: "Claude-3.5-Sonnet",
+    provider: "poe",
+    endpoint: "https://api.poe.com/v1/chat/completions",
+    maxTokens: 8192,
+    priority: 1,
+  },
+  {
+    name: "GPT-4o",
+    provider: "poe",
+    endpoint: "https://api.poe.com/v1/chat/completions",
+    maxTokens: 8192,
+    priority: 2,
+  },
+  {
+    name: "Claude-3-Opus",
+    provider: "poe",
+    endpoint: "https://api.poe.com/v1/chat/completions",
+    maxTokens: 8192,
+    priority: 3,
+  },
   // Groq - essayer d'abord un modèle léger (souvent moins limité)
   {
     name: "llama-3.1-8b-instant",
     provider: "groq",
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
     maxTokens: 8192,
-    priority: 1,
+    priority: 4,
   },
   {
     name: "llama-3.3-70b-versatile",
     provider: "groq",
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
     maxTokens: 8000,
-    priority: 2,
+    priority: 5,
   },
   // DeepSeek - fallback payant
   {
@@ -39,7 +61,7 @@ const MODELS: ModelConfig[] = [
     provider: "deepseek",
     endpoint: "https://api.deepseek.com/v1/chat/completions",
     maxTokens: 8192,
-    priority: 3,
+    priority: 6,
   },
   // Lovable AI - fallback gratuit avec quota
   {
@@ -47,7 +69,7 @@ const MODELS: ModelConfig[] = [
     provider: "lovable",
     endpoint: "https://ai.gateway.lovable.dev/v1/chat/completions",
     maxTokens: 8192,
-    priority: 4,
+    priority: 7,
   },
   // Gemini Flash - fallback final via Vertex AI
   {
@@ -55,7 +77,7 @@ const MODELS: ModelConfig[] = [
     provider: "geminiFlash",
     endpoint: "", // pas utilisé, on appelle directement le module
     maxTokens: 8192,
-    priority: 5,
+    priority: 8,
   },
 ];
 
@@ -64,7 +86,7 @@ function sleep(ms: number) {
 }
 
 function getApiKey(
-  provider: "groq" | "deepseek" | "lovable" | "geminiFlash"
+  provider: "groq" | "deepseek" | "lovable" | "geminiFlash" | "poe"
 ): string | undefined {
   if (provider === "groq") {
     return Deno.env.get("GROQ_API_KEY");
@@ -74,6 +96,9 @@ function getApiKey(
   }
   if (provider === "lovable") {
     return Deno.env.get("LOVABLE_API_KEY");
+  }
+  if (provider === "poe") {
+    return Deno.env.get("POE_API_KEY");
   }
   // GeminiFlash utilise GOOGLE_APPLICATION_CREDENTIALS
   return undefined;
