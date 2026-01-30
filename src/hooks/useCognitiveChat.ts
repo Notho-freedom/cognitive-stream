@@ -1,9 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { CognitiveUISchema, ActionPayload } from '@/components/cognitive/dynamic/types';
-import type { CognitiveNotification } from '@/components/cognitive/NotificationQueue';
-
-// Priority type matching NotificationQueue
-type NotifyPriority = 'low' | 'medium' | 'high' | 'critical';
+import type { CognitiveNotification, NotificationType, NotificationPriority } from '@/components/cognitive/NotificationQueue';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -25,13 +22,6 @@ type NotificationPushFn = (notification: Omit<CognitiveNotification, 'id' | 'tim
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
-// Determine if an action needs manual confirmation
-function requiresManualConfirmation(action: ActionPayload): boolean {
-  const actionType = action.payload.actionType as string;
-  const manualActions = ['list-select', 'input-change'];
-  return manualActions.includes(actionType);
-}
-
 export function useCognitiveChat(notificationPush?: NotificationPushFn) {
   const [state, setState] = useState<CognitiveChatState>({
     messages: [],
@@ -49,15 +39,17 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     notifyRef.current = notificationPush;
   }, [notificationPush]);
 
-  // Helper to push notifications
+  // Helper to push notifications - only for important events
   const notify = useCallback((
     message: string,
-    priority: NotifyPriority = 'medium',
+    type: NotificationType = 'info',
+    priority: NotificationPriority = 'medium',
     options?: { action?: { label: string; onClick: () => void } }
   ) => {
     if (notifyRef.current) {
       notifyRef.current({
         message,
+        type,
         priority,
         dismissible: true,
         ...options,
@@ -93,8 +85,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       pendingAction: null,
     }));
 
-    // Notify user that processing started
-    notify('Traitement de votre demande...', 'low');
+    // NO notification on start - reduces spam
 
     try {
       const response = await fetch(CHAT_URL, {
@@ -110,10 +101,10 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
 
       if (!response.ok) {
         if (response.status === 429) {
-          notify('Limite de requêtes atteinte. Réessayez plus tard.', 'high');
+          notify('Limite de requêtes atteinte. Réessayez plus tard.', 'error', 'high');
           throw new Error('Rate limit exceeded. Please try again later.');
         }
-        notify(`Erreur serveur: ${response.status}`, 'high');
+        notify(`Erreur serveur: ${response.status}`, 'error', 'high');
         throw new Error(`Request failed: ${response.status}`);
       }
 
@@ -168,13 +159,12 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
         }
       } catch (e) {
         console.error('Failed to parse AI response:', e);
-        notify('Erreur lors de l\'analyse de la réponse', 'medium');
+        notify('Erreur lors de l\'analyse de la réponse', 'warning', 'medium');
       }
 
       const assistantMessage: Message = { role: 'assistant', content: fullContent };
 
-      // Success notification
-      notify('Réponse générée avec succès', 'low');
+      // NO success notification - reduces spam
 
       setState(prev => ({
         ...prev,
@@ -186,7 +176,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      notify(`Erreur: ${errorMessage}`, 'high');
+      notify(`Erreur: ${errorMessage}`, 'error', 'high');
       
       setState(prev => ({
         ...prev,
@@ -204,18 +194,14 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     const actionType = action.payload.actionType as string;
     const formData = action.payload.formData as Record<string, unknown> | undefined;
     
-    // Log form data if present
+    // Log form data if present - NO notification, just log
     if (formData && Object.keys(formData).length > 0) {
       console.log('Form data collected:', formData);
-      notify(`Données collectées: ${Object.keys(formData).length} champ(s)`, 'low');
     }
     
     // Button clicks with form data are auto-submitted
     if (actionType === 'button-click' || actionType === 'form-submit') {
-      // Notify about form submission
-      notify('Envoi des données...', 'medium');
-      
-      // Build a descriptive message with form data
+      // NO notification - action happens silently
       let actionMessage = `Action: ${action.id}`;
       if (formData && Object.keys(formData).length > 0) {
         actionMessage += ` avec données: ${JSON.stringify(formData)}`;
@@ -231,9 +217,9 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       return;
     }
     
-    // Timer complete
+    // Timer complete - this IS notification-worthy
     if (actionType === 'timer-complete') {
-      notify('Timer terminé!', 'high', {
+      notify('Timer terminé!', 'alert', 'high', {
         action: {
           label: 'Redémarrer',
           onClick: () => sendMessage(`Redémarrer le timer ${action.id}`, action),
@@ -242,16 +228,22 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       return;
     }
     
-    // Table row selection
+    // Table row selection - silent
     if (actionType === 'table-row-select') {
-      const rowData = action.payload.rowData as string[];
-      notify(`Ligne sélectionnée: ${rowData[0] || 'N/A'}`, 'low');
       sendMessage(`Sélection table: ligne ${action.payload.rowIndex}`, action);
       return;
     }
     
-    // Alert actions
+    // Alert actions - push to notifications!
     if (actionType === 'alert-action') {
+      const alertVariant = action.payload.variant as string || 'info';
+      const alertMessage = action.payload.message as string || 'Alerte';
+      const notifType: NotificationType = 
+        alertVariant === 'error' ? 'error' :
+        alertVariant === 'warning' ? 'warning' :
+        alertVariant === 'success' ? 'success' : 'alert';
+      
+      notify(alertMessage, notifType, 'high');
       sendMessage(`Action alerte: ${action.id}`, action);
       return;
     }
@@ -279,7 +271,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
   }, [state.pendingAction, sendMessage]);
 
   const reset = useCallback(() => {
-    notify('Conversation réinitialisée', 'low');
+    // Silent reset - no notification
     setState({
       messages: [],
       schema: null,
@@ -289,7 +281,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       error: null,
       pendingAction: null,
     });
-  }, [notify]);
+  }, []);
 
   return {
     ...state,
@@ -297,5 +289,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     handleAction,
     confirmAction,
     reset,
+    // Expose notify for external use (alerts from components)
+    pushAlert: notify,
   };
 }
