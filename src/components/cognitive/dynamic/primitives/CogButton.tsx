@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { useCognitiveForm } from '../CognitiveFormContext';
 import type { ButtonBlock, ActionPayload } from '../types';
 
 interface CogButtonProps extends Omit<ButtonBlock, 'type'> {
@@ -45,18 +46,36 @@ export function CogButton({
   onAction 
 }: CogButtonProps) {
   const styles = variantStyles[variant] || variantStyles.default;
+  
+  // Access form context if available
+  const formContext = useCognitiveForm();
 
   const handleClick = () => {
     if (disabled || loading) return;
     
-    // Envoi automatique pour les boutons
-    onAction?.({ 
-      id: actionId, 
-      payload: { 
-        actionType: 'button-click', // Auto-submit
-        action: 'click' 
-      } 
-    });
+    // Build action with all form data if context is available
+    if (formContext) {
+      const formData = formContext.getAllValues();
+      console.log('[CogButton] Submitting with form data:', formData);
+      
+      onAction?.({ 
+        id: actionId, 
+        payload: { 
+          actionType: 'button-click',
+          action: 'click',
+          formData, // Include all form values!
+        } 
+      });
+    } else {
+      // Fallback: standalone button action
+      onAction?.({ 
+        id: actionId, 
+        payload: { 
+          actionType: 'button-click',
+          action: 'click',
+        } 
+      });
+    }
   };
 
   return (

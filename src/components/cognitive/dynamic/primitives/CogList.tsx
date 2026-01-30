@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { useCognitiveForm } from '../CognitiveFormContext';
 import type { ListBlock, ActionPayload } from '../types';
 
 interface CogListProps extends Omit<ListBlock, 'type'> {
@@ -17,20 +18,51 @@ export function CogList({
   onAction 
 }: CogListProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [selectedItem, setSelectedItem] = useState<string | null>(null);
+
+  // Access form context if available
+  const formContext = useCognitiveForm();
+
+  // Sync selection with form context
+  useEffect(() => {
+    if (formContext && id && selectable && selectedItem !== null) {
+      formContext.setFieldValue(id, selectedItem);
+    }
+  }, [formContext, id, selectable, selectedItem]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (formContext && id && selectable) {
+        formContext.removeField(id);
+      }
+    };
+  }, [formContext, id, selectable]);
 
   const handleSelect = (index: number, item: string) => {
     if (!selectable) return;
-    setSelectedIndex(index);
     
-    // Envoyer l'action avec le type list-select (nécessite confirmation manuelle)
-    onAction?.({ 
-      id: id || 'list', 
-      payload: { 
-        actionType: 'list-select', // Type d'action pour identification
-        index, 
-        item 
-      } 
-    });
+    setSelectedIndex(index);
+    setSelectedItem(item);
+    
+    // Update form context
+    if (formContext && id) {
+      formContext.setFieldValue(id, item);
+    }
+    
+    // Note: Don't send action on select anymore if we have form context
+    // The button will collect all values when clicked
+    // But if no form context, send action for backward compatibility
+    if (!formContext) {
+      onAction?.({ 
+        id: id || 'list', 
+        payload: { 
+          actionType: 'list-select',
+          index, 
+          item 
+        } 
+      });
+    }
   };
 
   return (
