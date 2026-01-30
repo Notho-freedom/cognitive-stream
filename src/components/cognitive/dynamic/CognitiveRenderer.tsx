@@ -17,6 +17,15 @@ import {
   CogStatus,
   CogSkeleton,
   CogEmpty,
+  CogImage,
+  CogCode,
+  CogTable,
+  CogTabs,
+  CogAccordion,
+  CogAlert,
+  CogTimer,
+  CogRating,
+  CogSlider,
 } from './primitives';
 
 interface CognitiveRendererProps {
@@ -85,6 +94,47 @@ function renderBlock(block: CognitiveBlock, onAction?: (action: ActionPayload) =
     
     case 'empty':
       return <CogEmpty key={blockKey} {...block} onAction={onAction} />;
+    
+    case 'image':
+      return <CogImage key={blockKey} {...block} onAction={onAction} />;
+    
+    case 'code':
+      return <CogCode key={blockKey} {...block} />;
+    
+    case 'table':
+      return <CogTable key={blockKey} {...block} onAction={onAction} />;
+    
+    case 'tabs':
+      return (
+        <CogTabs
+          key={blockKey}
+          {...block}
+          onAction={onAction}
+          renderBlock={(child, action, i) => renderBlock(child, action, i)}
+        />
+      );
+    
+    case 'accordion':
+      return (
+        <CogAccordion
+          key={blockKey}
+          {...block}
+          onAction={onAction}
+          renderBlock={(child, action, i) => renderBlock(child, action, i)}
+        />
+      );
+    
+    case 'alert':
+      return <CogAlert key={blockKey} {...block} onAction={onAction} />;
+    
+    case 'timer':
+      return <CogTimer key={blockKey} {...block} onAction={onAction} />;
+    
+    case 'rating':
+      return <CogRating key={blockKey} {...block} onAction={onAction} />;
+    
+    case 'slider':
+      return <CogSlider key={blockKey} {...block} onAction={onAction} />;
     
     default:
       console.warn('Unknown block type:', (block as any).type);

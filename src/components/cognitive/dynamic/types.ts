@@ -139,6 +139,115 @@ export interface EmptyBlock extends BaseBlock {
   actionId?: string;
 }
 
+// Image block
+export interface ImageBlock extends BaseBlock {
+  type: 'image';
+  src: string;
+  alt?: string;
+  caption?: string;
+  aspectRatio?: '1:1' | '16:9' | '4:3' | '21:9';
+  fit?: 'cover' | 'contain' | 'fill';
+  rounded?: boolean;
+  clickable?: boolean;
+  actionId?: string;
+}
+
+// Code block
+export interface CodeBlock extends BaseBlock {
+  type: 'code';
+  code: string;
+  language?: string;
+  showLineNumbers?: boolean;
+  maxHeight?: string;
+  copyable?: boolean;
+}
+
+// Table block
+export interface TableBlock extends BaseBlock {
+  type: 'table';
+  headers: string[];
+  rows: string[][];
+  striped?: boolean;
+  hoverable?: boolean;
+  compact?: boolean;
+  selectable?: boolean;
+}
+
+// Tabs block
+export interface TabItem {
+  id: string;
+  label: string;
+  icon?: string;
+  children: CognitiveBlock[];
+}
+
+export interface TabsBlock extends BaseBlock {
+  type: 'tabs';
+  tabs: TabItem[];
+  defaultTab?: string;
+  variant?: 'default' | 'pills' | 'underline';
+}
+
+// Accordion block
+export interface AccordionItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  children: CognitiveBlock[];
+}
+
+export interface AccordionBlock extends BaseBlock {
+  type: 'accordion';
+  items: AccordionItem[];
+  multiple?: boolean;
+  defaultOpen?: string[];
+  variant?: 'default' | 'bordered' | 'ghost';
+}
+
+// Alert block
+export interface AlertBlock extends BaseBlock {
+  type: 'alert';
+  variant: 'info' | 'success' | 'warning' | 'error';
+  title?: string;
+  message: string;
+  dismissible?: boolean;
+  actionLabel?: string;
+  actionId?: string;
+}
+
+// Timer block
+export interface TimerBlock extends BaseBlock {
+  type: 'timer';
+  duration: number;
+  autoStart?: boolean;
+  showControls?: boolean;
+  variant?: 'countdown' | 'stopwatch' | 'progress';
+  label?: string;
+}
+
+// Rating block
+export interface RatingBlock extends BaseBlock {
+  type: 'rating';
+  max?: number;
+  defaultValue?: number;
+  label?: string;
+  readonly?: boolean;
+  size?: 'sm' | 'md' | 'lg';
+}
+
+// Slider block
+export interface SliderBlock extends BaseBlock {
+  type: 'slider';
+  min?: number;
+  max?: number;
+  step?: number;
+  defaultValue?: number;
+  label?: string;
+  showValue?: boolean;
+  showMinMax?: boolean;
+  suffix?: string;
+}
+
 // Union of all block types
 export type CognitiveBlock =
   | TextBlock
@@ -155,7 +264,16 @@ export type CognitiveBlock =
   | DividerBlock
   | StatusBlock
   | SkeletonBlock
-  | EmptyBlock;
+  | EmptyBlock
+  | ImageBlock
+  | CodeBlock
+  | TableBlock
+  | TabsBlock
+  | AccordionBlock
+  | AlertBlock
+  | TimerBlock
+  | RatingBlock
+  | SliderBlock;
 
 // Schema structure
 export interface CognitiveUISchema {
