@@ -8,14 +8,14 @@ const corsHeaders = {
 // Configuration des modèles avec fallback automatique
 interface ModelConfig {
   name: string;
-  provider: "groq" | "deepseek";
+  provider: "groq" | "deepseek" | "lovable";
   endpoint: string;
   maxTokens: number;
   priority: number;
 }
 
 const MODELS: ModelConfig[] = [
-  // Groq models (priorité haute)
+  // Groq - priorité haute (gratuit mais rate limité)
   { 
     name: "llama-3.3-70b-versatile", 
     provider: "groq",
@@ -23,32 +23,19 @@ const MODELS: ModelConfig[] = [
     maxTokens: 8000,
     priority: 1,
   },
-  { 
-    name: "llama-3.1-70b-versatile", 
-    provider: "groq",
-    endpoint: "https://api.groq.com/openai/v1/chat/completions",
-    maxTokens: 8000,
-    priority: 2,
-  },
-  { 
-    name: "mixtral-8x7b-32768", 
-    provider: "groq",
-    endpoint: "https://api.groq.com/openai/v1/chat/completions",
-    maxTokens: 32768,
-    priority: 3,
-  },
-  { 
-    name: "gemma2-9b-it", 
-    provider: "groq",
-    endpoint: "https://api.groq.com/openai/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 4,
-  },
-  // DeepSeek fallback (dernier recours)
+  // DeepSeek - fallback payant
   { 
     name: "deepseek-chat", 
     provider: "deepseek",
     endpoint: "https://api.deepseek.com/v1/chat/completions",
+    maxTokens: 8192,
+    priority: 2,
+  },
+  // Lovable AI - fallback final (gratuit avec quota)
+  { 
+    name: "google/gemini-3-flash-preview", 
+    provider: "lovable",
+    endpoint: "https://ai.gateway.lovable.dev/v1/chat/completions",
     maxTokens: 8192,
     priority: 99,
   },
@@ -113,11 +100,14 @@ const ENHANCED_SYSTEM_PROMPT = `Tu es un assistant IA cognitif avancé utilisant
 
 MAINTENANT, RÉPONDS À LA REQUÊTE UTILISATEUR EN SUIVANT CES RÈGLES.`;
 
-function getApiKey(provider: "groq" | "deepseek"): string | undefined {
+function getApiKey(provider: "groq" | "deepseek" | "lovable"): string | undefined {
   if (provider === "groq") {
     return Deno.env.get("GROQ_API_KEY");
   }
-  return Deno.env.get("DEEPSEEK_API_KEY");
+  if (provider === "deepseek") {
+    return Deno.env.get("DEEPSEEK_API_KEY");
+  }
+  return Deno.env.get("LOVABLE_API_KEY");
 }
 
 async function tryModel(
