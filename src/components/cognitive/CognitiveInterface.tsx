@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FuturisticFrame } from './FuturisticFrame';
 import { StateIndicator } from './StateIndicator';
@@ -11,6 +11,25 @@ interface CognitiveInterfaceProps {
   className?: string;
 }
 
+// Mapping des largeurs contrôlées par l'IA
+const widthClasses = {
+  xs: 'max-w-md',    // 448px - Petites infos, confirmations
+  sm: 'max-w-lg',    // 512px - Formulaires simples
+  md: 'max-w-2xl',   // 672px - Par défaut, équilibré
+  lg: 'max-w-4xl',   // 896px - Tableaux, grilles
+  xl: 'max-w-6xl',   // 1152px - Dashboards, visualisations
+  full: 'max-w-7xl', // 1280px - Pleine largeur
+};
+
+// Mapping des hauteurs maximales
+const maxHeightClasses = {
+  sm: 'max-h-[40vh]',   // Courts messages
+  md: 'max-h-[60vh]',   // Standard
+  lg: 'max-h-[75vh]',   // Listes longues
+  xl: 'max-h-[85vh]',   // Contenu riche
+  screen: 'max-h-[90vh]', // Quasi plein écran
+};
+
 export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
   const [input, setInput] = useState('');
   const { 
@@ -19,41 +38,16 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     thought,
     isLoading, 
     isStreaming, 
-    error,
-    pendingAction, // Action en attente de confirmation
+    error, 
     sendMessage, 
     handleAction,
-    confirmAction, // Confirmer l'action en attente
     reset 
   } = useCognitiveChat();
-
-  // Auto-remplir l'input avec un contexte quand une action est en attente
-  useEffect(() => {
-    if (pendingAction) {
-      const actionType = pendingAction.payload.actionType as string;
-      const value = pendingAction.payload.value || pendingAction.payload.item;
-      
-      if (actionType === 'list-select') {
-        setInput(`J'ai sélectionné: "${value}". `);
-      } else if (actionType === 'input-change') {
-        // Pour les inputs, la valeur est déjà dans le payload
-        // L'utilisateur peut compléter son message
-      }
-    }
-  }, [pendingAction]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-    
-    // Si une action est en attente, la confirmer avec le message
-    if (pendingAction) {
-      confirmAction(input.trim());
-    } else {
-      // Sinon, envoyer un message normal
-      sendMessage(input.trim());
-    }
-    
+    sendMessage(input.trim());
     setInput('');
   };
 
@@ -62,7 +56,6 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     if (isStreaming) return 'responding';
     if (error) return 'warning';
     if (schema) return 'success';
-    if (pendingAction) return 'listening'; // En attente d'input
     return 'idle';
   };
 
@@ -71,12 +64,18 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     if (isStreaming) return 'RÉPONSE EN COURS';
     if (error) return 'ERREUR';
     if (schema) return 'TERMINÉ';
-    if (pendingAction) return 'EN ATTENTE D\'INPUT';
-    return 'PRÊT';
+    return 'EN ATTENTE';
   };
 
+  // Récupérer les dimensions depuis le schéma
+  const layout = schema?.layout || {};
+  const widthClass = widthClasses[layout.width || 'md'];
+  const maxHeightClass = layout.maxHeight ? maxHeightClasses[layout.maxHeight] : '';
+  const isScrollable = layout.scrollable !== false; // Par défaut true
+  const isCentered = layout.centered !== false; // Par défaut true
+
   return (
-    <div className={cn('w-full max-w-2xl mx-auto', className)}>
+    <div className={cn('w-full', widthClass, isCentered && 'mx-auto', className)}>
       {/* Main Response Card */}
       <AnimatePresence mode="wait">
         {(isLoading || schema || error || thought) && (
@@ -89,18 +88,16 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
           >
             <FuturisticFrame variant="primary" animated={isLoading}>
               <div className="p-6">
-                {/* Header bar with dynamic title/description from schema metadata */}
+                {/* Header bar */}
                 <div className="flex items-center justify-between mb-5 pb-4 border-b border-intent-primary/20">
                   <div className="flex items-center gap-3">
                     <StateIndicator mode={getIndicatorMode()} size="sm" />
                     <div className="flex flex-col">
-                      {/* Dynamic title from schema.metadata or fallback to state label */}
-                      <span className="text-[11px] uppercase tracking-[0.15em] text-intent-primary font-medium">
-                        {schema?.metadata?.title || getStateLabel()}
+                      <span className="text-[10px] uppercase tracking-[0.2em] text-intent-primary font-medium">
+                        {getStateLabel()}
                       </span>
-                      {/* Thought as description - shows internal reasoning */}
-                      <span className="text-[9px] text-text-ghost tracking-wide max-w-[300px] truncate" title={thought || undefined}>
-                        {thought || schema?.metadata?.description || 'COGNITIVE.UI.v1.0'}
+                      <span className="text-[9px] text-text-ghost tracking-wider">
+                        COGNITIVE.UI.v1.0
                       </span>
                     </div>
                   </div>
@@ -128,30 +125,17 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   </div>
                 </div>
 
-                {/* Thought is now displayed in header description - removed separate block */}
-
-                {/* Pending Action Notice */}
-                {pendingAction && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="mb-4 p-3 bg-intent-primary/10 border border-intent-primary/30"
-                    style={{ clipPath: 'polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%)' }}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <motion.div 
-                        className="w-2 h-2 bg-intent-primary rounded-full"
-                        animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }}
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                      />
-                      <span className="text-[9px] text-intent-primary uppercase tracking-wider font-medium">
-                        ACTION EN ATTENTE
-                      </span>
-                    </div>
-                    <p className="text-xs text-text-secondary">
-                      Complétez votre message ci-dessous pour envoyer l'action
+                {/* Thought display */}
+                {thought && (
+                  <div className="mb-4 p-3 bg-intent-secondary/5 border border-intent-secondary/20" 
+                       style={{ clipPath: 'polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%)' }}>
+                    <span className="text-[9px] text-intent-secondary uppercase tracking-wider">
+                      PENSÉE INTERNE
+                    </span>
+                    <p className="text-xs text-text-ghost mt-1 font-light italic">
+                      {thought}
                     </p>
-                  </motion.div>
+                  </div>
                 )}
 
                 {/* Error display */}
@@ -173,9 +157,20 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   </div>
                 )}
 
-                {/* Dynamic UI Schema */}
+                {/* Dynamic UI Schema with controlled dimensions */}
                 {schema && (
-                  <div className="min-h-[60px]">
+                  <div 
+                    className={cn(
+                      'min-h-[60px]',
+                      maxHeightClass,
+                      isScrollable && 'overflow-y-auto overflow-x-hidden'
+                    )}
+                    style={{
+                      // Scrollbar custom styling
+                      scrollbarWidth: 'thin',
+                      scrollbarColor: 'hsl(var(--intent-primary) / 0.3) transparent',
+                    }}
+                  >
                     <CognitiveRenderer 
                       schema={schema} 
                       onAction={handleAction}
@@ -192,13 +187,9 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                     <motion.span animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 2.5, repeat: Infinity, delay: 0.8 }}>
                       GROQ.AI
                     </motion.span>
-                    {pendingAction && (
-                      <motion.span 
-                        className="text-intent-primary"
-                        animate={{ opacity: [0.5, 1, 0.5] }} 
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                      >
-                        ⏳ PENDING
+                    {layout.width && (
+                      <motion.span animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 2.2, repeat: Infinity, delay: 1.5 }}>
+                        SIZE:{layout.width.toUpperCase()}
                       </motion.span>
                     )}
                   </div>
@@ -222,7 +213,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
       >
-        <FuturisticFrame variant={pendingAction ? 'primary' : 'minimal'}>
+        <FuturisticFrame variant="minimal">
           <div className="p-4">
             <div className="flex items-center gap-3">
               <div className="relative flex-1">
@@ -230,24 +221,16 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={
-                    pendingAction 
-                      ? "Complétez votre message et appuyez sur Entrée..." 
-                      : "Pose une question à l'IA..."
-                  }
+                  placeholder="Pose une question à l'IA..."
                   disabled={isLoading}
                   className={cn(
                     'w-full bg-transparent text-text-primary placeholder:text-text-ghost/50',
                     'text-sm font-light tracking-wide px-4 py-3 outline-none',
-                    'border transition-colors',
-                    pendingAction 
-                      ? 'border-intent-primary/60' 
-                      : 'border-intent-neutral/20 focus:border-intent-primary/50',
+                    'border border-intent-neutral/20 focus:border-intent-primary/50 transition-colors',
                   )}
                   style={{
                     clipPath: 'polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%)',
                   }}
-                  autoFocus={!!pendingAction}
                 />
               </div>
               
@@ -256,10 +239,8 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                 disabled={isLoading || !input.trim()}
                 className={cn(
                   'px-6 py-3 text-xs uppercase tracking-wider font-medium transition-all',
-                  pendingAction
-                    ? 'bg-intent-primary/30 hover:bg-intent-primary/40 border-intent-primary/70'
-                    : 'bg-intent-primary/20 hover:bg-intent-primary/30 border-intent-primary/50',
-                  'text-text-primary border',
+                  'bg-intent-primary/20 hover:bg-intent-primary/30 text-text-primary',
+                  'border border-intent-primary/50',
                   'disabled:opacity-50 disabled:cursor-not-allowed',
                 )}
                 style={{
@@ -274,23 +255,11 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   >
                     ◐
                   </motion.span>
-                ) : pendingAction ? (
-                  '✓ Confirmer'
                 ) : (
                   'Envoyer'
                 )}
               </button>
             </div>
-            
-            {pendingAction && (
-              <motion.p 
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-2 text-[10px] text-intent-primary/70 tracking-wide"
-              >
-                💡 Appuyez sur Entrée pour confirmer votre sélection
-              </motion.p>
-            )}
           </div>
         </FuturisticFrame>
       </motion.form>

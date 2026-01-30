@@ -8,6 +8,9 @@ export type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'info';
 export type CardVariant = 'default' | 'framed' | 'ghost';
 export type StackDirection = 'vertical' | 'horizontal';
 export type GapSize = 'none' | 'sm' | 'md' | 'lg' | 'xl';
+// Layout control types
+export type LayoutWidth = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'full';
+export type LayoutMaxHeight = 'sm' | 'md' | 'lg' | 'xl' | 'screen';
 
 // Base block interface
 interface BaseBlock {
@@ -162,7 +165,14 @@ export interface CognitiveUISchema {
     description?: string;
     timestamp?: string;
   };
+  layout?: {
+    width?: LayoutWidth;
+    maxHeight?: LayoutMaxHeight;
+    scrollable?: boolean;
+    centered?: boolean;
+  };
 }
+
 
 // Action payload returned from interactions
 export interface ActionPayload {
