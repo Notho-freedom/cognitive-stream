@@ -3,11 +3,12 @@ import {
   NotificationQueue, 
   CognitiveInterface,
 } from '@/components/cognitive';
+import { CogStatusBridge } from '@/components/cognitive/CogStatusBridge';
 
 export default function Index() {
   return (
     <NotificationProvider>
-      <div className="min-h-screen flex items-center justify-center p-4 sm:p-8 overflow-hidden">
+      <div className="min-h-screen flex flex-col p-4 sm:p-6 overflow-hidden">
         {/* Minimal ambient background */}
         <div className="fixed inset-0 pointer-events-none">
           <div className="absolute top-1/3 left-1/3 w-[600px] h-[600px] bg-intent-primary/3 rounded-full blur-[120px]" />
@@ -17,8 +18,13 @@ export default function Index() {
         {/* Notification Queue GX */}
         <NotificationQueue position="top-right" />
 
-        {/* Pure Cognitive Interface */}
-        <div className="relative z-10 w-full">
+        {/* GX Status Bridge - Top */}
+        <div className="relative z-20 mb-6">
+          <CogStatusBridge className="inline-block" />
+        </div>
+
+        {/* Pure Cognitive Interface - Centered */}
+        <div className="relative z-10 flex-1 flex items-center justify-center">
           <CognitiveInterface />
         </div>
       </div>

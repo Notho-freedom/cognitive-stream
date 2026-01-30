@@ -17,5 +17,6 @@ export { CommandInput } from './CommandInput';
 export type { CommandSuggestion } from './CommandInput';
 
 export { CognitiveInterface } from './CognitiveInterface';
+export { CogStatusBridge } from './CogStatusBridge';
 export { CognitiveRenderer } from './dynamic/CognitiveRenderer';
 export * from './dynamic/types';
