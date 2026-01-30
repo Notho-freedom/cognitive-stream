@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import ENHANCED_SYSTEM_PROMPT from "./ENHANCED_SYSTEM_PROMPT.ts";
+import { callGeminiFlash } from "./geminiFlash.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,7 +10,7 @@ const corsHeaders = {
 // Configuration des modèles avec fallback automatique
 interface ModelConfig {
   name: string;
-  provider: "groq" | "deepseek" | "lovable";
+  provider: "groq" | "deepseek" | "lovable" | "geminiFlash";
   endpoint: string;
   maxTokens: number;
   priority: number;
@@ -46,6 +47,13 @@ const MODELS: ModelConfig[] = [
     endpoint: "https://ai.gateway.lovable.dev/v1/chat/completions",
     maxTokens: 8192,
     priority: 99,
+  },  
+  {
+    name: "gemini-2.5-flash-lite",
+    provider: "geminiFlash",
+    endpoint: "", // pas utilisé, on appelle directement le module
+    maxTokens: 8192,
+    priority: 100,
   },
 ];
 
@@ -53,7 +61,7 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function getApiKey(provider: "groq" | "deepseek" | "lovable"): string | undefined {
+function getApiKey(provider: "groq" | "deepseek" | "lovable" | "geminiFlash"): string | undefined {
   if (provider === "groq") {
     return Deno.env.get("GROQ_API_KEY");
   }
@@ -62,6 +70,20 @@ function getApiKey(provider: "groq" | "deepseek" | "lovable"): string | undefine
   }
   return Deno.env.get("LOVABLE_API_KEY");
 }
+
+function streamFromString(str: string): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      const chunk = encoder.encode(str);
+      // On transforme en ArrayBuffer standard
+      controller.enqueue(new Uint8Array(chunk.buffer.slice(0)));
+      controller.close();
+    },
+  });
+}
+
+
 
 async function tryModel(
   model: ModelConfig,
@@ -74,6 +96,30 @@ async function tryModel(
   status?: number;
   isRateLimit?: boolean;
 }> {
+
+if (model.provider === "geminiFlash") {
+  console.log(`[Try] GeminiFlash/${model.name}`);
+  const response = await callGeminiFlash(model.name, {
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...messages
+    ]
+  });
+
+  if (!response.success) {
+    console.error(`[Error] GeminiFlash/${model.name}:`, response.error);
+    return { success: false, error: response.error, status: response.status };
+  }
+
+  console.log(`[OK] GeminiFlash/${model.name}`);
+
+  return {
+    success: true,
+    response: { body: streamFromString(JSON.stringify(response.data)) }
+  };
+}
+
+
   const apiKey = getApiKey(model.provider);
   
   if (!apiKey) {
