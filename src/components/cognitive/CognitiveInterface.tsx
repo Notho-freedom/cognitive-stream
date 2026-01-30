@@ -89,16 +89,18 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
           >
             <FuturisticFrame variant="primary" animated={isLoading}>
               <div className="p-6">
-                {/* Header bar */}
+                {/* Header bar with dynamic title/description from schema metadata */}
                 <div className="flex items-center justify-between mb-5 pb-4 border-b border-intent-primary/20">
                   <div className="flex items-center gap-3">
                     <StateIndicator mode={getIndicatorMode()} size="sm" />
                     <div className="flex flex-col">
-                      <span className="text-[10px] uppercase tracking-[0.2em] text-intent-primary font-medium">
-                        {getStateLabel()}
+                      {/* Dynamic title from schema.metadata or fallback to state label */}
+                      <span className="text-[11px] uppercase tracking-[0.15em] text-intent-primary font-medium">
+                        {schema?.metadata?.title || getStateLabel()}
                       </span>
-                      <span className="text-[9px] text-text-ghost tracking-wider">
-                        COGNITIVE.UI.v1.0
+                      {/* Dynamic description from schema.metadata or fallback */}
+                      <span className="text-[9px] text-text-ghost tracking-wide max-w-[300px] truncate">
+                        {schema?.metadata?.description || 'COGNITIVE.UI.v1.0'}
                       </span>
                     </div>
                   </div>

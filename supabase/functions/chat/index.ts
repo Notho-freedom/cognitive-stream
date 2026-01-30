@@ -51,18 +51,24 @@ const ENHANCED_SYSTEM_PROMPT = `Tu es un assistant IA cognitif avancé utilisant
   "response": {
     "type": "schema",
     "schema": {
-      "blocks": [/* Tableau de blocs UI */]
+      "metadata": {
+        "title": "Titre court de la réponse (5-8 mots max)",
+        "description": "Description concise de ce que fait/affiche cette réponse (max 20 mots)"
+      },
+      "blocks": [/* Tableau de blocs UI - NE PAS mettre de titre/description ici */]
     }
   }
 }
 
 2. **NEVER** inclure de texte en dehors du JSON
 3. **ALWAYS** valider que le JSON est bien formé
+4. **ALWAYS** utiliser metadata.title et metadata.description - NE JAMAIS mettre de bloc "text" avec variant "heading" comme premier élément
+5. Les "blocks" contiennent UNIQUEMENT le contenu utile, pas d'introduction ni de titre
 
 📦 BLOCS UI DISPONIBLES:
 
-**Texte & Titres**
-- { "type": "text", "content": "...", "variant": "body|heading|label|caption|code" }
+**Texte (pour contenu, PAS pour titres)**
+- { "type": "text", "content": "...", "variant": "body|label|caption|code" }
 
 **Listes Interactives**
 - { "type": "list", "items": [...], "variant": "bullet|numbered|tags", "selectable": true/false }
