@@ -1,7 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { CognitiveUISchema, ActionPayload } from '@/components/cognitive/dynamic/types';
-import type { CognitiveNotification, NotificationType, NotificationPriority } from '@/components/cognitive/NotificationQueue';
+import type { CognitiveNotification, NotificationPriority } from '@/components/cognitive/NotificationQueue';
 import { parseSystemActions, executeSystemAction, formatActionResult } from '@/lib/systemActions';
+
+// NotificationType is determined by priority in the new system
+type NotificationType = 'info' | 'success' | 'warning' | 'error' | 'alert';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -51,6 +54,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
   }, [notificationPush]);
 
   // Helper to push notifications - only for important events
+  // Map NotificationType to NotificationPriority
   const notify = useCallback((
     message: string,
     type: NotificationType = 'info',
@@ -58,10 +62,17 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     options?: { action?: { label: string; onClick: () => void } }
   ) => {
     if (notifyRef.current) {
+      // Map type to priority if needed
+      const mappedPriority: NotificationPriority = 
+        type === 'error' ? 'critical' :
+        type === 'warning' ? 'high' :
+        type === 'alert' ? 'high' :
+        type === 'success' ? 'medium' :
+        priority;
+      
       notifyRef.current({
         message,
-        type,
-        priority,
+        priority: mappedPriority,
         dismissible: true,
         ...options,
       });
@@ -273,12 +284,12 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     if (actionType === 'alert-action') {
       const alertVariant = action.payload.variant as string || 'info';
       const alertMessage = action.payload.message as string || 'Alerte';
-      const notifType: NotificationType = 
-        alertVariant === 'error' ? 'error' :
-        alertVariant === 'warning' ? 'warning' :
-        alertVariant === 'success' ? 'success' : 'alert';
+      const notifPriority: NotificationPriority = 
+        alertVariant === 'error' ? 'critical' :
+        alertVariant === 'warning' ? 'high' :
+        alertVariant === 'success' ? 'medium' : 'high';
       
-      notify(alertMessage, notifType, 'high');
+      notify(alertMessage, 'alert', notifPriority);
       sendMessage(`Action alerte: ${action.id}`, action);
       return;
     }
