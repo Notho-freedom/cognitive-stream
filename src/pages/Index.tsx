@@ -1,11 +1,19 @@
+import { useState } from 'react';
 import { 
   NotificationProvider, 
   NotificationQueue, 
   CognitiveInterface,
+  LoadingScreen,
 } from '@/components/cognitive';
 import { CogStatusBridge } from '@/components/cognitive/CogStatusBridge';
 
 export default function Index() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  if (isLoading) {
+    return <LoadingScreen onComplete={() => setIsLoading(false)} />;
+  }
+
   return (
     <NotificationProvider>
       <div className="min-h-screen flex flex-col p-4 sm:p-6 overflow-hidden">

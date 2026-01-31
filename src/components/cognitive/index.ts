@@ -7,6 +7,7 @@ export { StateIndicator } from './StateIndicator';
 export { FuturisticFrame } from './FuturisticFrame';
 export { EphemeralAction } from './EphemeralAction';
 export { SystemStatus } from './SystemStatus';
+export { LoadingScreen } from './LoadingScreen';
 export { 
   NotificationQueue, 
   NotificationProvider, 
