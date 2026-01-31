@@ -1,22 +1,19 @@
 export { CognitiveSurface } from './CognitiveSurface';
-export type { CognitiveIntent, CognitiveState } from './CognitiveSurface';
-
-export { StateIndicator } from './StateIndicator';
-export type { IndicatorMode } from './StateIndicator';
-
-export { ThoughtStream } from './ThoughtStream';
-export { EphemeralAction } from './EphemeralAction';
-export { ResponseCard } from './ResponseCard';
-export type { ResponseState } from './ResponseCard';
-export { FuturisticFrame } from './FuturisticFrame';
-
-export { NotificationQueue, NotificationProvider, useNotifications } from './NotificationQueue';
-export type { CognitiveNotification, NotificationPriority, NotificationType } from './NotificationQueue';
-
-export { CommandInput } from './CommandInput';
-export type { CommandSuggestion } from './CommandInput';
-
 export { CognitiveInterface } from './CognitiveInterface';
+export { ThoughtStream } from './ThoughtStream';
+export { ResponseCard } from './ResponseCard';
+export { CommandInput } from './CommandInput';
+export { StateIndicator } from './StateIndicator';
+export { FuturisticFrame } from './FuturisticFrame';
+export { EphemeralAction } from './EphemeralAction';
+export { SystemStatus } from './SystemStatus';
+export { 
+  NotificationQueue, 
+  NotificationProvider, 
+  useNotifications,
+  type CognitiveNotification,
+  type NotificationPriority 
+} from './NotificationQueue';
 export { CogStatusBridge } from './CogStatusBridge';
 export { CognitiveRenderer } from './dynamic/CognitiveRenderer';
 export * from './dynamic/types';
