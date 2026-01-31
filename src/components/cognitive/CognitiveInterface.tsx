@@ -47,6 +47,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     isStreaming, 
     error,
     pendingAction,
+    aiProvider,
     sendMessage, 
     handleAction,
     confirmAction,
@@ -271,8 +272,13 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                     <motion.span animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 3, repeat: Infinity }}>
                       MSG:{messages.length}
                     </motion.span>
-                    <motion.span animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 2.5, repeat: Infinity, delay: 0.8 }}>
-                      GROQ.AI
+                    {/* AI Provider indicator */}
+                    <motion.span 
+                      animate={{ opacity: [0.5, 1, 0.5] }} 
+                      transition={{ duration: 2.5, repeat: Infinity, delay: 0.8 }}
+                      className={aiProvider ? 'text-intent-secondary' : ''}
+                    >
+                      {aiProvider ? aiProvider.toUpperCase() : 'AI.STANDBY'}
                     </motion.span>
                     {pendingAction && (
                       <motion.span 

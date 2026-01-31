@@ -27,6 +27,7 @@ interface CognitiveChatState {
   systemResults: SystemExecutionResult[];
   error: string | null;
   pendingAction: ActionPayload | null;
+  aiProvider: string | null; // Current AI provider (from X-AI-Provider header)
 }
 
 // Notification callback type
@@ -45,6 +46,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     systemResults: [],
     error: null,
     pendingAction: null,
+    aiProvider: null,
   });
 
   // Store notification push function in a ref to avoid dependency issues
@@ -121,13 +123,36 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
         }),
       });
 
+      // Extract AI provider from response headers
+      const aiProvider = response.headers.get('X-AI-Provider') || null;
+      if (aiProvider) {
+        setState(prev => ({ ...prev, aiProvider }));
+      }
+
       if (!response.ok) {
-        if (response.status === 429) {
-          notify('Limite de requêtes atteinte. Réessayez plus tard.', 'error', 'high');
-          throw new Error('Rate limit exceeded. Please try again later.');
+        // Try to extract error details from response body
+        let errorDetails = '';
+        try {
+          const errorBody = await response.json();
+          errorDetails = errorBody.error || errorBody.details || '';
+        } catch {
+          // Ignore JSON parse errors
         }
-        notify(`Erreur serveur: ${response.status}`, 'error', 'high');
-        throw new Error(`Request failed: ${response.status}`);
+        
+        if (response.status === 429) {
+          const errorMsg = `Limite de requêtes atteinte${errorDetails ? `: ${errorDetails}` : ''}`;
+          notify(errorMsg, 'error', 'high');
+          throw new Error(errorMsg);
+        }
+        if (response.status === 402) {
+          const errorMsg = `Quota dépassé${errorDetails ? `: ${errorDetails}` : ''}`;
+          notify(errorMsg, 'error', 'critical');
+          throw new Error(errorMsg);
+        }
+        
+        const errorMsg = `Erreur ${response.status}${errorDetails ? `: ${errorDetails}` : ''}`;
+        notify(errorMsg, 'error', 'high');
+        throw new Error(errorMsg);
       }
 
       if (!response.body) {
@@ -328,6 +353,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       systemResults: [],
       error: null,
       pendingAction: null,
+      aiProvider: null,
     });
   }, []);
 
