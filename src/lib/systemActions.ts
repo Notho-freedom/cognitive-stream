@@ -1,6 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-// SYSTEM ACTIONS
-// Définition des actions système que l'IA peut exécuter
+// INTELLIGENT SYSTEM FEEDBACK LOOP
+// Permet à l'IA de recevoir les résultats des commandes système
+// et de construire un schéma adapté au résultat
 // ═══════════════════════════════════════════════════════════════
 
 export interface SystemAction {
@@ -18,13 +19,11 @@ export interface SystemActionResult {
 
 /**
  * Parse une demande utilisateur pour extraire les actions système
- * L'IA peut inclure des actions système dans ses réponses
+ * Format: ```system:exec\n<command>\n```
  */
 export function parseSystemActions(text: string): SystemAction[] {
   const actions: SystemAction[] = [];
   
-  // Pattern pour détecter les blocs d'action système
-  // Format: ```system:exec\n<command>\n```
   const patterns = [
     { regex: /```system:exec\n([\s\S]*?)```/g, type: 'exec' as const },
     { regex: /```system:read\n([\s\S]*?)```/g, type: 'read' as const },
@@ -149,35 +148,112 @@ export async function executeSystemAction(action: SystemAction): Promise<SystemA
 }
 
 /**
- * Formate le résultat d'une action pour l'affichage
+ * Formate le résultat d'une action de manière structurée pour l'IA
+ * NOUVEAU: Retourne un objet JSON que l'IA peut parser facilement
  */
-export function formatActionResult(result: SystemActionResult): string {
+export function formatActionResultForAI(result: SystemActionResult): {
+  type: string;
+  success: boolean;
+  data: unknown;
+  summary: string;
+} {
   const { action, success, duration } = result;
-  const status = success ? '✓' : '✗';
   
   switch (action.type) {
     case 'exec':
     case 'spawn': {
-      const execResult = result.result as { stdout?: string; stderr?: string; exitCode?: number };
-      return `${status} Command executed in ${duration}ms (exit: ${execResult.exitCode || 0})\n${execResult.stdout || ''}${execResult.stderr ? `\nSTDERR: ${execResult.stderr}` : ''}`;
+      const execResult = result.result as { 
+        stdout?: string; 
+        stderr?: string; 
+        exitCode?: number 
+      };
+      return {
+        type: 'command_execution',
+        success,
+        data: {
+          command: action.payload.command,
+          stdout: execResult.stdout || '',
+          stderr: execResult.stderr || '',
+          exitCode: execResult.exitCode || 0,
+          duration,
+        },
+        summary: `Command "${action.payload.command}" ${success ? 'executed successfully' : 'failed'} (exit: ${execResult.exitCode || 0})`,
+      };
     }
     
     case 'read': {
-      const readResult = result.result as { content?: string; size?: number };
-      return `${status} Read ${readResult.size || 0} bytes in ${duration}ms`;
+      const readResult = result.result as { 
+        content?: string; 
+        size?: number;
+        path?: string;
+      };
+      return {
+        type: 'file_read',
+        success,
+        data: {
+          path: action.payload.path,
+          content: readResult.content || '',
+          size: readResult.size || 0,
+          duration,
+        },
+        summary: `File "${action.payload.path}" ${success ? `read successfully (${readResult.size} bytes)` : 'failed to read'}`,
+      };
     }
     
     case 'write': {
-      const writeResult = result.result as { bytesWritten?: number };
-      return `${status} Wrote ${writeResult.bytesWritten || 0} bytes in ${duration}ms`;
+      const writeResult = result.result as { 
+        bytesWritten?: number;
+        path?: string;
+      };
+      return {
+        type: 'file_write',
+        success,
+        data: {
+          path: action.payload.path,
+          bytesWritten: writeResult.bytesWritten || 0,
+          duration,
+        },
+        summary: `File "${action.payload.path}" ${success ? `written successfully (${writeResult.bytesWritten} bytes)` : 'failed to write'}`,
+      };
     }
     
     case 'list': {
-      const listResult = result.result as { items?: Array<{ name: string }> };
-      return `${status} Listed ${listResult.items?.length || 0} items in ${duration}ms`;
+      const listResult = result.result as { 
+        items?: Array<{
+          name: string;
+          isDirectory: boolean;
+          isFile: boolean;
+          size: number;
+        }>;
+        path?: string;
+      };
+      return {
+        type: 'directory_list',
+        success,
+        data: {
+          path: action.payload.path,
+          items: listResult.items || [],
+          count: listResult.items?.length || 0,
+          duration,
+        },
+        summary: `Directory "${action.payload.path}" ${success ? `listed successfully (${listResult.items?.length || 0} items)` : 'failed to list'}`,
+      };
     }
     
     default:
-      return `${status} Action completed in ${duration}ms`;
+      return {
+        type: 'unknown',
+        success,
+        data: result.result,
+        summary: `Action completed in ${duration}ms`,
+      };
   }
+}
+
+/**
+ * Formate le résultat pour affichage humain (fallback)
+ */
+export function formatActionResult(result: SystemActionResult): string {
+  const formatted = formatActionResultForAI(result);
+  return formatted.summary;
 }

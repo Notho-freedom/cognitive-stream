@@ -7,7 +7,7 @@
 import ELECTRON_SYSTEM_PROMPT from './electronSystemPrompt';
 
 const OLLAMA_ENDPOINT = 'http://localhost:11434/api/generate';
-const OLLAMA_MODEL = 'llama3.2';
+const OLLAMA_MODEL = 'mistral';
 
 interface OllamaResponse {
   response: string;
@@ -140,7 +140,7 @@ export async function callOllamaLocal(
       body: JSON.stringify({
         model: OLLAMA_MODEL,
         prompt: fullPrompt,
-        stream: true,
+        stream: false,
       }),
     });
     
