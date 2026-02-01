@@ -48,7 +48,9 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     error,
     pendingAction,
     aiProvider,
+    aiModel,
     isLocalFallback,
+    triedProviders,
     sendMessage, 
     handleAction,
     confirmAction,
@@ -182,8 +184,16 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
   // Formatage du provider pour affichage
   const getProviderDisplay = () => {
     if (!aiProvider) return 'AI.STANDBY';
-    if (isLocalFallback) return `⚡ ${aiProvider.toUpperCase()}`;
-    return aiProvider.toUpperCase();
+    const providerName = aiProvider.toUpperCase();
+    const modelName = aiModel ? aiModel.split('/').pop()?.toUpperCase() : '';
+    if (isLocalFallback) return `⚡ LOCAL:${modelName || providerName}`;
+    return modelName ? `${providerName}:${modelName}` : providerName;
+  };
+
+  // Affichage des providers essayés (debug)
+  const getTriedProvidersDisplay = () => {
+    if (triedProviders.length <= 1) return null;
+    return triedProviders.map(p => p.toUpperCase().slice(0, 3)).join('→');
   };
 
   return (
