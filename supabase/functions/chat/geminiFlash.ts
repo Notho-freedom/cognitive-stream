@@ -1,6 +1,6 @@
 // geminiFlash.ts - Version corrigée pour Deno (Supabase Edge Functions)
 
-const PROJECT_ID = Deno.env.get("GCP_PROJECT_ID") || "cognitive-stream";
+const PROJECT_ID = Deno.env.get("GCP_PROJECT_ID") || "congnitive-stream";
 const LOCATION = "us-central1";
 
 interface GeminiMessage {
