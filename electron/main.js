@@ -11,8 +11,8 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: window.screen.availWidth * 0.8,
+    height: window.screen.availHeight * 0.8,
     minWidth: 800,
     minHeight: 600,
     frame: false, // Frameless for GX aesthetic

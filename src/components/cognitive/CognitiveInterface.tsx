@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Volume2, VolumeX } from 'lucide-react';
 import { FuturisticFrame } from './FuturisticFrame';
 import { StateIndicator } from './StateIndicator';
 import { ThoughtStream } from './ThoughtStream';
@@ -178,44 +177,6 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
 
   return (
     <div className={cn(widthClass, isCentered && 'mx-auto', className)}>
-      {/* TTS Control Button - Fixed position */}
-      <motion.button
-        initial={{ opacity: 0, scale: 0.8 }}
-        animate={{ opacity: 1, scale: 1 }}
-        onClick={tts.toggle}
-        className={cn(
-          'fixed top-6 right-6 z-50',
-          'w-12 h-12 rounded-lg',
-          'flex items-center justify-center',
-          'border backdrop-blur-glass',
-          'transition-all duration-200',
-          tts.isEnabled 
-            ? 'bg-intent-primary/20 border-intent-primary/50 text-intent-primary hover:bg-intent-primary/30' 
-            : 'bg-surface-glass/10 border-intent-neutral/30 text-text-ghost hover:bg-surface-glass/20'
-        )}
-        style={{
-          clipPath: 'polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%)',
-        }}
-        title={tts.isEnabled ? "Désactiver la voix" : "Activer la voix"}
-      >
-        {tts.isEnabled ? (
-          <Volume2 className="w-5 h-5" />
-        ) : (
-          <VolumeX className="w-5 h-5" />
-        )}
-        
-        {/* Speaking indicator */}
-        {tts.isSpeaking && (
-          <motion.div
-            className="absolute inset-0 rounded-lg border-2 border-intent-primary"
-            animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
-            transition={{ duration: 1, repeat: Infinity }}
-            style={{
-              clipPath: 'polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%)',
-            }}
-          />
-        )}
-      </motion.button>
 
       {/* Page d'accueil avant première interaction */}
       <AnimatePresence mode="wait">
@@ -361,7 +322,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                             transition={{ duration: 0.6, repeat: Infinity }}
                             className="text-intent-success"
                           >
-                            🔊
+                            speaking...
                           </motion.span>
                         )}
                         {thought || schema?.metadata?.description || 'COGNITIVE.UI.v1.0'}
@@ -488,7 +449,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                         animate={{ opacity: tts.isSpeaking ? [0.5, 1, 0.5] : 1 }} 
                         transition={{ duration: 1, repeat: tts.isSpeaking ? Infinity : 0 }}
                       >
-                        {tts.isSpeaking ? '🔊 VOICE' : '🔇 VOICE'}
+                        {tts.isSpeaking ? 'speaking..' : 'idle'}
                       </motion.span>
                     )}
                     {pendingAction && (
@@ -497,7 +458,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                         animate={{ opacity: [0.5, 1, 0.5] }} 
                         transition={{ duration: 1.5, repeat: Infinity }}
                       >
-                        ⏳ PENDING
+                        PENDING...
                       </motion.span>
                     )}
                     {layout.width && (

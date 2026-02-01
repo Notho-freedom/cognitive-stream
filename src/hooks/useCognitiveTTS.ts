@@ -37,7 +37,7 @@ export function useCognitiveTTS(options: CognitiveTTSOptions = DEFAULT_OPTIONS) 
     currentText: null,
     error: null,
     volume: 1.0,
-    speed: 1.1, // Légèrement plus rapide pour un effet "AI"
+    speed: 1, // Légèrement plus rapide pour un effet "AI"
     pitch: 0.0,
     voice: 'neural_female',
   });
