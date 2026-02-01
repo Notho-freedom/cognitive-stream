@@ -10,9 +10,10 @@ const corsHeaders = {
 };
 
 // Configuration des modèles avec fallback automatique
+// NOTE: Ollama n'est PAS inclus ici - il est géré côté client Electron
 interface ModelConfig {
   name: string;
-  provider: "groq" | "deepseek" | "lovable" | "geminiFlash" | "poe" | "ollama";
+  provider: "groq" | "deepseek" | "lovable" | "geminiFlash" | "poe";
   endpoint: string;
   maxTokens: number;
   priority: number;
@@ -80,14 +81,7 @@ const MODELS: ModelConfig[] = [
     maxTokens: 8192,
     priority: 8,
   },
-  // Ollama - fallback final pour Electron (localhost)
-  {
-    name: "llama3.2",
-    provider: "ollama",
-    endpoint: "http://localhost:11434/api/generate",
-    maxTokens: 4096,
-    priority: 9,
-  },
+  // NOTE: Ollama est géré UNIQUEMENT côté client Electron, pas ici
 ];
 
 function sleep(ms: number) {
@@ -95,7 +89,7 @@ function sleep(ms: number) {
 }
 
 function getApiKey(
-  provider: "groq" | "deepseek" | "lovable" | "geminiFlash" | "poe" | "ollama"
+  provider: "groq" | "deepseek" | "lovable" | "geminiFlash" | "poe"
 ): string | undefined {
   if (provider === "groq") {
     return Deno.env.get("GROQ_API_KEY");
@@ -108,10 +102,6 @@ function getApiKey(
   }
   if (provider === "poe") {
     return Deno.env.get("POE_API_KEY");
-  }
-  // Ollama n'a pas besoin de clé API
-  if (provider === "ollama") {
-    return "no-key-needed";
   }
   // GeminiFlash utilise GOOGLE_APPLICATION_CREDENTIALS
   return undefined;
@@ -176,63 +166,7 @@ async function tryModel(
   status?: number;
   isRateLimit?: boolean;
 }> {
-  // Cas spécial pour Ollama (localhost)
-  if (model.provider === "ollama") {
-    console.log(`[Try] Ollama/${model.name}`);
-    
-    try {
-      // Combiner system prompt et messages
-      const fullPrompt = messages.map(m => 
-        m.role === 'user' ? `User: ${m.content}` : `Assistant: ${m.content}`
-      ).join('\n');
-      
-      const response = await fetch(model.endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: model.name,
-          prompt: `${systemPrompt}\n\n${fullPrompt}`,
-          stream: false,
-        }),
-      });
-
-      if (!response.ok) {
-        const err = await response.text();
-        console.error(`[Error] Ollama/${model.name}:`, err);
-        return { 
-          success: false, 
-          error: `HTTP ${response.status}`, 
-          status: response.status 
-        };
-      }
-
-      const data = await response.json();
-      const text = data.response || "";
-      
-      console.log(`[OK] Ollama/${model.name}`);
-      
-      // Créer un stream SSE à partir de la réponse
-      const stream = createSSEStream(text);
-      
-      return {
-        success: true,
-        response: new Response(stream, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-          },
-        }),
-      };
-    } catch (error) {
-      console.error(`[Error] Ollama/${model.name}:`, error);
-      return { 
-        success: false, 
-        error: String(error), 
-        status: 500 
-      };
-    }
-  }
+  // NOTE: Ollama est géré UNIQUEMENT côté client Electron, pas dans la cloud function
 
   // Cas spécial pour GeminiFlash
   if (model.provider === "geminiFlash") {

@@ -10,21 +10,21 @@ import { cn } from '@/lib/utils';
 
 // Mapping des largeurs contrôlées par l'IA
 const widthClasses = {
-  xs: 'w-[20vw]',    // 448px - Petites infos, confirmations
-  sm: 'w-[30vw]',    // 512px - Formulaires simples
-  md: 'w-[50vw]',   // 672px - Par défaut, équilibré
-  lg: 'w-[75vw]',   // 896px - Tableaux, grilles
-  xl: 'w-[90vw]',   // 1152px - Dashboards, visualisations
-  full: 'w-[95vw]', // 1280px - Pleine largeur
+  xs: 'w-[20vw]',
+  sm: 'w-[30vw]',
+  md: 'w-[50vw]',
+  lg: 'w-[75vw]',
+  xl: 'w-[90vw]',
+  full: 'w-[95vw]',
 };
 
 // Mapping des hauteurs maximales
 const maxHeightClasses = {
-  sm: 'max-h-[40vh]',   // Courts messages
-  md: 'max-h-[60vh]',   // Standard
-  lg: 'max-h-[75vh]',   // Listes longues
-  xl: 'max-h-[85vh]',   // Contenu riche
-  screen: 'max-h-[90vh]', // Quasi plein écran
+  sm: 'max-h-[40vh]',
+  md: 'max-h-[60vh]',
+  lg: 'max-h-[75vh]',
+  xl: 'max-h-[85vh]',
+  screen: 'max-h-[90vh]',
 };
 
 interface CognitiveInterfaceProps {
@@ -34,9 +34,8 @@ interface CognitiveInterfaceProps {
 export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
   const [input, setInput] = useState('');
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const [inputHistory, setInputHistory] = useState<string[]>([]);
+  const [hasInteracted, setHasInteracted] = useState(false);
   
-  // Get notification push function
   const { push: notifyPush } = useNotifications();
   
   const { 
@@ -48,13 +47,20 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     error,
     pendingAction,
     aiProvider,
+    isLocalFallback,
     sendMessage, 
     handleAction,
     confirmAction,
     reset 
   } = useCognitiveChat(notifyPush);
 
-  // Auto-remplir l'input avec un contexte quand une action est en attente
+  // Détecter la première interaction
+  useEffect(() => {
+    if (messages.length > 0 && !hasInteracted) {
+      setHasInteracted(true);
+    }
+  }, [messages.length, hasInteracted]);
+
   useEffect(() => {
     if (pendingAction) {
       const actionType = pendingAction.payload.actionType as string;
@@ -66,14 +72,12 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     }
   }, [pendingAction]);
 
-  // Récupérer les dimensions depuis le schéma
   const layout = schema?.layout || {};
   const widthClass = widthClasses[layout.width || 'md'];
   const maxHeightClass = layout.maxHeight ? maxHeightClasses[layout.maxHeight] : '';
   const isScrollable = layout.scrollable !== false;
   const isCentered = layout.centered !== false;
 
-  // Handle keyboard navigation for history
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowUp') {
       e.preventDefault();
@@ -119,7 +123,6 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
     
-    // Reset history navigation
     setHistoryIndex(-1);
     
     if (pendingAction) {
@@ -149,8 +152,119 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     return 'PRÊT';
   };
 
+  // Formatage du provider pour affichage
+  const getProviderDisplay = () => {
+    if (!aiProvider) return 'AI.STANDBY';
+    if (isLocalFallback) return `⚡ ${aiProvider.toUpperCase()}`;
+    return aiProvider.toUpperCase();
+  };
+
   return (
     <div className={cn(widthClass, isCentered && 'mx-auto', className)}>
+      {/* Page d'accueil avant première interaction */}
+      <AnimatePresence mode="wait">
+        {!hasInteracted && !isLoading && (
+          <motion.div
+            key="welcome"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            className="mb-8 text-center"
+          >
+            {/* Titre principal animé */}
+            <motion.div 
+              className="mb-4"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.2 }}
+            >
+              <motion.span 
+                className="inline-block text-[10px] uppercase tracking-[0.4em] text-intent-primary/60 mb-3"
+                animate={{ opacity: [0.5, 1, 0.5] }}
+                transition={{ duration: 3, repeat: Infinity }}
+              >
+                COGNITIVE INTERFACE
+              </motion.span>
+              
+              <h1 className="text-3xl sm:text-4xl font-extralight tracking-[0.15em] text-text-primary mb-2">
+                <motion.span
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.3 }}
+                >
+                  NEURAL
+                </motion.span>
+                {' '}
+                <motion.span
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="text-intent-primary"
+                >
+                  STREAM
+                </motion.span>
+              </h1>
+              
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.5 }}
+                className="text-sm text-text-ghost font-light tracking-wide max-w-md mx-auto"
+              >
+                Interface cognitive avancée avec intelligence artificielle multi-modèle
+              </motion.p>
+            </motion.div>
+
+            {/* Indicateurs de statut */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.6 }}
+              className="flex items-center justify-center gap-6 text-[9px] text-text-ghost font-mono tracking-wider"
+            >
+              <motion.div 
+                className="flex items-center gap-2"
+                animate={{ opacity: [0.5, 1, 0.5] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-intent-secondary" />
+                <span>MULTI-AI READY</span>
+              </motion.div>
+              
+              <motion.div 
+                className="flex items-center gap-2"
+                animate={{ opacity: [0.5, 1, 0.5] }}
+                transition={{ duration: 2, repeat: Infinity, delay: 0.7 }}
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-intent-primary" />
+                <span>GX.UI ACTIVE</span>
+              </motion.div>
+              
+              {/* Indicateur Electron si disponible */}
+              {typeof window !== 'undefined' && (window as unknown as { cognitiveBridge?: unknown }).cognitiveBridge && (
+                <motion.div 
+                  className="flex items-center gap-2"
+                  animate={{ opacity: [0.5, 1, 0.5] }}
+                  transition={{ duration: 2, repeat: Infinity, delay: 1.4 }}
+                >
+                  <div className="w-1.5 h-1.5 rounded-full bg-intent-focus" />
+                  <span>SYSTEM BRIDGE</span>
+                </motion.div>
+              )}
+            </motion.div>
+
+            {/* Ligne décorative */}
+            <motion.div
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ delay: 0.7, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+              className="mt-6 mx-auto w-32 h-px bg-gradient-to-r from-transparent via-intent-primary/40 to-transparent"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Main Response Card */}
       <AnimatePresence mode="wait">
         {(isLoading || schema || error || thought) && (
@@ -163,16 +277,14 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
           >
             <FuturisticFrame variant="primary" animated={isLoading}>
               <div className="p-6">
-                {/* Header bar with dynamic title/description from schema metadata */}
+                {/* Header bar */}
                 <div className="flex items-center justify-between mb-5 pb-4 border-b border-intent-primary/20">
                   <div className="flex items-center gap-3">
                     <StateIndicator mode={getIndicatorMode()} size="sm" />
                     <div className="flex flex-col">
-                      {/* Dynamic title from schema.metadata or fallback to state label */}
                       <span className="text-[10px] uppercase tracking-[0.2em] text-intent-primary font-medium">
                         {schema?.metadata?.title || getStateLabel()}
                       </span>
-                      {/* Thought as description - shows internal reasoning */}
                       <span className="text-[9px] text-text-ghost tracking-wide max-w-[300px] truncate" title={thought || undefined}>
                         {thought || schema?.metadata?.description || 'COGNITIVE.UI.v1.0'}
                       </span>
@@ -180,6 +292,18 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   </div>
 
                   <div className="flex items-center gap-3">
+                    {/* Indicateur local fallback */}
+                    {isLocalFallback && (
+                      <motion.span
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="text-[8px] text-intent-focus uppercase tracking-wider px-2 py-0.5 border border-intent-focus/30 bg-intent-focus/10"
+                        style={{ clipPath: 'polygon(4px 0%, 100% 0%, calc(100% - 4px) 100%, 0% 100%)' }}
+                      >
+                        LOCAL
+                      </motion.span>
+                    )}
+                    
                     <motion.div
                       className="relative w-2 h-2"
                       animate={{ scale: [1, 1.2, 1] }}
@@ -245,7 +369,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   </div>
                 )}
 
-                {/* Dynamic UI Schema with controlled dimensions */}
+                {/* Dynamic UI Schema */}
                 {schema && (
                   <div 
                     className={cn(
@@ -254,7 +378,6 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                       isScrollable && 'overflow-y-auto overflow-x-hidden'
                     )}
                     style={{
-                      // Scrollbar custom styling
                       scrollbarWidth: 'thin',
                       scrollbarColor: 'hsl(var(--intent-primary) / 0.3) transparent',
                     }}
@@ -272,13 +395,12 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                     <motion.span animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 3, repeat: Infinity }}>
                       MSG:{messages.length}
                     </motion.span>
-                    {/* AI Provider indicator */}
                     <motion.span 
                       animate={{ opacity: [0.5, 1, 0.5] }} 
                       transition={{ duration: 2.5, repeat: Infinity, delay: 0.8 }}
-                      className={aiProvider ? 'text-intent-secondary' : ''}
+                      className={isLocalFallback ? 'text-intent-focus' : aiProvider ? 'text-intent-secondary' : ''}
                     >
-                      {aiProvider ? aiProvider.toUpperCase() : 'AI.STANDBY'}
+                      {getProviderDisplay()}
                     </motion.span>
                     {pendingAction && (
                       <motion.span 
@@ -296,7 +418,10 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                     )}
                   </div>
                   <button
-                    onClick={reset}
+                    onClick={() => {
+                      reset();
+                      setHasInteracted(false);
+                    }}
                     className="text-[8px] text-text-ghost hover:text-intent-primary transition-colors uppercase tracking-wider"
                   >
                     RESET
@@ -313,7 +438,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
         onSubmit={handleSubmit}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
+        transition={{ delay: hasInteracted ? 0 : 0.8 }}
       >
         <FuturisticFrame variant={pendingAction ? 'primary' : 'minimal'}>
           <div className="p-4">
@@ -330,7 +455,9 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   placeholder={
                     pendingAction 
                       ? "Complétez votre message..." 
-                      : "Pose une question à l'IA..."
+                      : hasInteracted 
+                        ? "Pose une question à l'IA..."
+                        : "Que puis-je faire pour vous ?"
                   }
                   disabled={isLoading}
                   className={cn(
@@ -346,7 +473,6 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   }}
                   autoFocus={!!pendingAction}
                 />
-                {/* History indicator */}
                 {historyIndex >= 0 && (
                   <motion.span
                     initial={{ opacity: 0 }}
