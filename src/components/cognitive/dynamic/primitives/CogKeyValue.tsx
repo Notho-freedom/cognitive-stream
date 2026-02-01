@@ -13,7 +13,7 @@ export function CogKeyValue({ pairs, className }: CogKeyValueProps) {
       animate={{ opacity: 1 }}
       className={cn('space-y-2', className)}
     >
-      {pairs.map((pair, i) => (
+      {pairs?.map((pair, i) => (
         <motion.div
           key={pair.key}
           initial={{ opacity: 0, x: -10 }}
