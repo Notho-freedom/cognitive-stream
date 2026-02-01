@@ -1,6 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import ENHANCED_SYSTEM_PROMPT from "./ENHANCED_SYSTEM_PROMPT.ts";
-import { callGeminiFlash } from "./geminiFlash.ts";
+
+// ═══════════════════════════════════════════════════════════════
+// CLOUD FUNCTION - LOVABLE AI ONLY
+// Cette fonction ne contient plus que Lovable AI Gateway
+// Tous les autres providers sont gérés côté client
+// ═══════════════════════════════════════════════════════════════
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,325 +14,8 @@ const corsHeaders = {
   "Access-Control-Expose-Headers": "X-AI-Model, X-AI-Provider",
 };
 
-// Configuration des modèles avec fallback automatique
-// NOTE: Ollama n'est PAS inclus ici - il est géré côté client Electron
-interface ModelConfig {
-  name: string;
-  provider: "groq" | "deepseek" | "lovable" | "geminiFlash" | "poe" | "openrouter";
-  endpoint: string;
-  maxTokens: number;
-  priority: number;
-}
-
-const MODELS: ModelConfig[] = [
-  // === OPENROUTER MODELS (GRATUITS ET PUISSANTS) ===
-  {
-    name: "liquid/lfm-2.5-1.2b-thinking:free",
-    provider: "openrouter",
-    endpoint: "https://openrouter.ai/api/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 1, // Meilleur modèle gratuit pour le raisonnement
-  },
-  {
-    name: "liquid/lfm-2.5-1.2b:free",
-    provider: "openrouter",
-    endpoint: "https://openrouter.ai/api/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 2,
-  },
-  {
-    name: "google/gemini-2.0-flash-exp:free",
-    provider: "openrouter",
-    endpoint: "https://openrouter.ai/api/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 3,
-  },
-  {
-    name: "meta-llama/llama-3.2-3b-instruct:free",
-    provider: "openrouter",
-    endpoint: "https://openrouter.ai/api/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 4,
-  },
-  {
-    name: "mistralai/mistral-7b-instruct:free",
-    provider: "openrouter",
-    endpoint: "https://openrouter.ai/api/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 5,
-  },
-  {
-    name: "microsoft/phi-3-mini-128k-instruct:free",
-    provider: "openrouter",
-    endpoint: "https://openrouter.ai/api/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 6,
-  },
-  
-  // === POE MODELS ===
-  {
-    name: "Claude-3.5-Sonnet",
-    provider: "poe",
-    endpoint: "https://api.poe.com/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 7,
-  },
-  {
-    name: "GPT-4o",
-    provider: "poe",
-    endpoint: "https://api.poe.com/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 8,
-  },
-  {
-    name: "Claude-3-Opus",
-    provider: "poe",
-    endpoint: "https://api.poe.com/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 9,
-  },
-  
-  // === GROQ MODELS ===
-  {
-    name: "llama-3.1-8b-instant",
-    provider: "groq",
-    endpoint: "https://api.groq.com/openai/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 10,
-  },
-  {
-    name: "llama-3.3-70b-versatile",
-    provider: "groq",
-    endpoint: "https://api.groq.com/openai/v1/chat/completions",
-    maxTokens: 8000,
-    priority: 11,
-  },
-  
-  // === DEEPSEEK ===
-  {
-    name: "deepseek-chat",
-    provider: "deepseek",
-    endpoint: "https://api.deepseek.com/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 12,
-  },
-  
-  // === LOVABLE AI ===
-  {
-    name: "google/gemini-3-flash-preview",
-    provider: "lovable",
-    endpoint: "https://ai.gateway.lovable.dev/v1/chat/completions",
-    maxTokens: 8192,
-    priority: 13,
-  },
-  
-  // === GEMINI FLASH ===
-  {
-    name: "gemini-2.5-flash-lite",
-    provider: "geminiFlash",
-    endpoint: "",
-    maxTokens: 8192,
-    priority: 14,
-  },
-];
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function getApiKey(
-  provider: "groq" | "deepseek" | "lovable" | "geminiFlash" | "poe" | "openrouter"
-): string | undefined {
-  if (provider === "groq") {
-    return Deno.env.get("GROQ_API_KEY");
-  }
-  if (provider === "deepseek") {
-    return Deno.env.get("DEEPSEEK_API_KEY");
-  }
-  if (provider === "lovable") {
-    return Deno.env.get("LOVABLE_API_KEY");
-  }
-  if (provider === "poe") {
-    return Deno.env.get("POE_API_KEY");
-  }
-  if (provider === "openrouter") {
-    return Deno.env.get("OPENROUTER_API_KEY");
-  }
-  // GeminiFlash utilise GOOGLE_APPLICATION_CREDENTIALS
-  return undefined;
-}
-
-/**
- * Crée un stream SSE à partir d'une réponse texte
- */
-function createSSEStream(text: string): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-
-  return new ReadableStream({
-    start(controller) {
-      // Simuler un stream SSE avec le texte complet
-      const words = text.split(" ");
-      let buffer = "";
-
-      for (let i = 0; i < words.length; i++) {
-        buffer += (i > 0 ? " " : "") + words[i];
-
-        // Envoyer par chunks pour simuler le streaming
-        if (i % 5 === 0 || i === words.length - 1) {
-          const chunk = JSON.stringify({
-            choices: [
-              {
-                delta: { content: buffer },
-                finish_reason: null,
-              },
-            ],
-          });
-
-          controller.enqueue(encoder.encode(`data: ${chunk}\n\n`));
-          buffer = "";
-        }
-      }
-
-      // Message de fin
-      const finalChunk = JSON.stringify({
-        choices: [
-          {
-            delta: {},
-            finish_reason: "stop",
-          },
-        ],
-      });
-
-      controller.enqueue(encoder.encode(`data: ${finalChunk}\n\n`));
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-      controller.close();
-    },
-  });
-}
-
-async function tryModel(
-  model: ModelConfig,
-  messages: Array<{ role: string; content: string }>,
-  systemPrompt: string
-): Promise<{
-  success: boolean;
-  response?: Response;
-  error?: string;
-  status?: number;
-  isRateLimit?: boolean;
-}> {
-  // Cas spécial pour GeminiFlash
-  if (model.provider === "geminiFlash") {
-    console.log(`[Try] GeminiFlash/${model.name}`);
-
-    try {
-      const geminiResponse = await callGeminiFlash(model.name, {
-        messages: [{ role: "system", content: systemPrompt }, ...messages],
-      });
-
-      if (!geminiResponse.success) {
-        console.error(
-          `[Error] GeminiFlash/${model.name}:`,
-          geminiResponse.error
-        );
-        return {
-          success: false,
-          error: geminiResponse.error,
-          status: geminiResponse.status,
-        };
-      }
-
-      console.log(`[OK] GeminiFlash/${model.name}`);
-
-      // Créer une vraie Response avec un stream SSE
-      const stream = createSSEStream(geminiResponse.text || "");
-
-      return {
-        success: true,
-        response: new Response(stream, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-          },
-        }),
-      };
-    } catch (error) {
-      console.error(`[Error] GeminiFlash/${model.name}:`, error);
-      return {
-        success: false,
-        error: String(error),
-        status: 500,
-      };
-    }
-  }
-
-  // Cas standard pour les autres providers (Groq, DeepSeek, Lovable, Poe, OpenRouter)
-  const apiKey = getApiKey(model.provider);
-
-  if (!apiKey) {
-    console.warn(`[${model.provider}] API key not configured`);
-    return {
-      success: false,
-      error: `${model.provider} API key missing`,
-      status: 500,
-    };
-  }
-
-  console.log(`[Try] ${model.provider}/${model.name}`);
-
-  try {
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      Accept: "text/event-stream, application/json",
-    };
-
-    // Headers spéciaux pour OpenRouter
-    if (model.provider === "openrouter") {
-      headers["HTTP-Referer"] = "https://cognitive-stream.app";
-      headers["X-Title"] = "Cognitive Stream - Neural Interface";
-    }
-
-    const response = await fetch(model.endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: model.name,
-        messages: [{ role: "system", content: systemPrompt }, ...messages],
-        stream: true,
-        temperature: 0.7,
-        max_tokens: Math.min(2048, model.maxTokens),
-      }),
-    });
-
-    if (response.status === 429) {
-      console.warn(`[429] ${model.provider}/${model.name} rate limited`);
-      return {
-        success: false,
-        error: "Rate limit",
-        isRateLimit: true,
-        status: 429,
-      };
-    }
-
-    if (!response.ok) {
-      const err = await response.text();
-      console.error(`[${response.status}] ${model.provider}/${model.name}:`, err);
-      return {
-        success: false,
-        error: `HTTP ${response.status}`,
-        status: response.status,
-      };
-    }
-
-    console.log(`[OK] ${model.provider}/${model.name}`);
-    return { success: true, response };
-  } catch (error) {
-    console.error(`[Error] ${model.provider}/${model.name}:`, error);
-    return { success: false, error: String(error), status: 500 };
-  }
-}
+const LOVABLE_ENDPOINT = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const LOVABLE_MODEL = "google/gemini-3-flash-preview";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -337,61 +25,91 @@ serve(async (req) => {
   try {
     const { messages, systemPrompt } = await req.json();
     const prompt = systemPrompt || ENHANCED_SYSTEM_PROMPT;
-
-    let lastError = "";
-    let lastStatus = 503;
-    let lastProvider: string | undefined;
-    let lastModel: string | undefined;
-
-    for (const model of MODELS) {
-      // Retry avec backoff uniquement sur 429
-      const first = await tryModel(model, messages, prompt);
-      const result = first.isRateLimit
-        ? await (async () => {
-            await sleep(650);
-            return tryModel(model, messages, prompt);
-          })()
-        : first;
-
-      if (result.success && result.response) {
-        return new Response(result.response.body, {
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-            "X-AI-Model": model.name,
-            "X-AI-Provider": model.provider,
-          },
-        });
-      }
-
-      lastError = result.error || "Unknown";
-      lastStatus = result.status ?? 503;
-      lastProvider = model.provider;
-      lastModel = model.name;
-
-      if (!result.isRateLimit) {
-        await sleep(300);
-      }
+    
+    const apiKey = Deno.env.get("LOVABLE_API_KEY");
+    
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({ error: "LOVABLE_API_KEY not configured" }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
-    return new Response(
-      JSON.stringify({
-        error: "All models unavailable",
-        details: lastError,
-        last: { provider: lastProvider, model: lastModel, status: lastStatus },
+    console.log(`[Lovable AI] Calling ${LOVABLE_MODEL}`);
+
+    const response = await fetch(LOVABLE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: LOVABLE_MODEL,
+        messages: [{ role: "system", content: prompt }, ...messages],
+        stream: true,
+        temperature: 0.7,
+        max_tokens: 4096,
       }),
+    });
+
+    if (response.status === 429) {
+      console.warn("[Lovable AI] Rate limited");
+      return new Response(
+        JSON.stringify({ error: "Rate limit exceeded", code: 429 }),
+        {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (response.status === 402) {
+      console.warn("[Lovable AI] Payment required");
+      return new Response(
+        JSON.stringify({ error: "Payment required", code: 402 }),
+        {
+          status: 402,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Lovable AI] Error ${response.status}:`, errorText);
+      return new Response(
+        JSON.stringify({ error: `AI error: ${response.status}`, details: errorText }),
+        {
+          status: response.status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    console.log(`[Lovable AI] Success with ${LOVABLE_MODEL}`);
+
+    return new Response(response.body, {
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "X-AI-Model": LOVABLE_MODEL,
+        "X-AI-Provider": "lovable-ai",
+      },
+    });
+
+  } catch (error) {
+    console.error("[Fatal]:", error);
+    return new Response(
+      JSON.stringify({ error: String(error) }),
       {
-        status: lastStatus === 402 || lastStatus === 429 ? lastStatus : 503,
+        status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
-  } catch (error) {
-    console.error("[Fatal]:", error);
-    return new Response(JSON.stringify({ error: String(error) }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
   }
 });

@@ -79,7 +79,7 @@ export function useCognitiveEdgeTTS(options: CognitiveEdgeTTSOptions = DEFAULT_O
     setState(prev => ({ ...prev, isSpeaking: true, currentText: text, error: null }));
 
     try {
-      let voiceToUse = COGNITIVE_EDGE_VOICES[state.voice];
+      let voiceToUse: string = COGNITIVE_EDGE_VOICES[state.voice];
 
       // Auto-détection de langue si activée
       if (state.autoDetectLanguage) {
