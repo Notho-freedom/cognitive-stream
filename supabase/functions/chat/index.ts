@@ -13,75 +13,122 @@ const corsHeaders = {
 // NOTE: Ollama n'est PAS inclus ici - il est géré côté client Electron
 interface ModelConfig {
   name: string;
-  provider: "groq" | "deepseek" | "lovable" | "geminiFlash" | "poe";
+  provider: "groq" | "deepseek" | "lovable" | "geminiFlash" | "poe" | "openrouter";
   endpoint: string;
   maxTokens: number;
   priority: number;
 }
 
 const MODELS: ModelConfig[] = [
-  // Poe - Modèles premium accessibles via API
+  // === OPENROUTER MODELS (GRATUITS ET PUISSANTS) ===
+  {
+    name: "liquid/lfm-2.5-1.2b-thinking:free",
+    provider: "openrouter",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions",
+    maxTokens: 8192,
+    priority: 1, // Meilleur modèle gratuit pour le raisonnement
+  },
+  {
+    name: "liquid/lfm-2.5-1.2b:free",
+    provider: "openrouter",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions",
+    maxTokens: 8192,
+    priority: 2,
+  },
+  {
+    name: "google/gemini-2.0-flash-exp:free",
+    provider: "openrouter",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions",
+    maxTokens: 8192,
+    priority: 3,
+  },
+  {
+    name: "meta-llama/llama-3.2-3b-instruct:free",
+    provider: "openrouter",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions",
+    maxTokens: 8192,
+    priority: 4,
+  },
+  {
+    name: "mistralai/mistral-7b-instruct:free",
+    provider: "openrouter",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions",
+    maxTokens: 8192,
+    priority: 5,
+  },
+  {
+    name: "microsoft/phi-3-mini-128k-instruct:free",
+    provider: "openrouter",
+    endpoint: "https://openrouter.ai/api/v1/chat/completions",
+    maxTokens: 8192,
+    priority: 6,
+  },
+  
+  // === POE MODELS ===
   {
     name: "Claude-3.5-Sonnet",
     provider: "poe",
     endpoint: "https://api.poe.com/v1/chat/completions",
     maxTokens: 8192,
-    priority: 1,
+    priority: 7,
   },
   {
     name: "GPT-4o",
     provider: "poe",
     endpoint: "https://api.poe.com/v1/chat/completions",
     maxTokens: 8192,
-    priority: 2,
+    priority: 8,
   },
   {
     name: "Claude-3-Opus",
     provider: "poe",
     endpoint: "https://api.poe.com/v1/chat/completions",
     maxTokens: 8192,
-    priority: 3,
+    priority: 9,
   },
-  // Groq - essayer d'abord un modèle léger (souvent moins limité)
+  
+  // === GROQ MODELS ===
   {
     name: "llama-3.1-8b-instant",
     provider: "groq",
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
     maxTokens: 8192,
-    priority: 4,
+    priority: 10,
   },
   {
     name: "llama-3.3-70b-versatile",
     provider: "groq",
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
     maxTokens: 8000,
-    priority: 5,
+    priority: 11,
   },
-  // DeepSeek - fallback payant
+  
+  // === DEEPSEEK ===
   {
     name: "deepseek-chat",
     provider: "deepseek",
     endpoint: "https://api.deepseek.com/v1/chat/completions",
     maxTokens: 8192,
-    priority: 6,
+    priority: 12,
   },
-  // Lovable AI - fallback gratuit avec quota
+  
+  // === LOVABLE AI ===
   {
     name: "google/gemini-3-flash-preview",
     provider: "lovable",
     endpoint: "https://ai.gateway.lovable.dev/v1/chat/completions",
     maxTokens: 8192,
-    priority: 7,
+    priority: 13,
   },
-  // Gemini Flash - fallback via Vertex AI
+  
+  // === GEMINI FLASH ===
   {
     name: "gemini-2.5-flash-lite",
     provider: "geminiFlash",
     endpoint: "",
     maxTokens: 8192,
-    priority: 8,
+    priority: 14,
   },
-  // NOTE: Ollama est géré UNIQUEMENT côté client Electron, pas ici
 ];
 
 function sleep(ms: number) {
@@ -89,7 +136,7 @@ function sleep(ms: number) {
 }
 
 function getApiKey(
-  provider: "groq" | "deepseek" | "lovable" | "geminiFlash" | "poe"
+  provider: "groq" | "deepseek" | "lovable" | "geminiFlash" | "poe" | "openrouter"
 ): string | undefined {
   if (provider === "groq") {
     return Deno.env.get("GROQ_API_KEY");
@@ -102,6 +149,9 @@ function getApiKey(
   }
   if (provider === "poe") {
     return Deno.env.get("POE_API_KEY");
+  }
+  if (provider === "openrouter") {
+    return Deno.env.get("OPENROUTER_API_KEY");
   }
   // GeminiFlash utilise GOOGLE_APPLICATION_CREDENTIALS
   return undefined;
@@ -166,8 +216,6 @@ async function tryModel(
   status?: number;
   isRateLimit?: boolean;
 }> {
-  // NOTE: Ollama est géré UNIQUEMENT côté client Electron, pas dans la cloud function
-
   // Cas spécial pour GeminiFlash
   if (model.provider === "geminiFlash") {
     console.log(`[Try] GeminiFlash/${model.name}`);
@@ -214,7 +262,7 @@ async function tryModel(
     }
   }
 
-  // Cas standard pour les autres providers (Groq, DeepSeek, Lovable, Poe)
+  // Cas standard pour les autres providers (Groq, DeepSeek, Lovable, Poe, OpenRouter)
   const apiKey = getApiKey(model.provider);
 
   if (!apiKey) {
@@ -229,13 +277,21 @@ async function tryModel(
   console.log(`[Try] ${model.provider}/${model.name}`);
 
   try {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      Accept: "text/event-stream, application/json",
+    };
+
+    // Headers spéciaux pour OpenRouter
+    if (model.provider === "openrouter") {
+      headers["HTTP-Referer"] = "https://cognitive-stream.app";
+      headers["X-Title"] = "Cognitive Stream - Neural Interface";
+    }
+
     const response = await fetch(model.endpoint, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "text/event-stream, application/json",
-      },
+      headers,
       body: JSON.stringify({
         model: model.name,
         messages: [{ role: "system", content: systemPrompt }, ...messages],
