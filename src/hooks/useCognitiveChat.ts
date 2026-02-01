@@ -2,6 +2,12 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { CognitiveUISchema, ActionPayload } from '@/components/cognitive/dynamic/types';
 import type { CognitiveNotification, NotificationPriority } from '@/components/cognitive/NotificationQueue';
 import { parseSystemActions, executeSystemAction, formatActionResult } from '@/lib/systemActions';
+import { 
+  isElectronEnvironment, 
+  isOllamaAvailable, 
+  callOllamaLocal, 
+  getSystemContext 
+} from '@/lib/ollamaLocal';
 
 // NotificationType is determined by priority in the new system
 type NotificationType = 'info' | 'success' | 'warning' | 'error' | 'alert';
@@ -27,7 +33,8 @@ interface CognitiveChatState {
   systemResults: SystemExecutionResult[];
   error: string | null;
   pendingAction: ActionPayload | null;
-  aiProvider: string | null; // Current AI provider (from X-AI-Provider header)
+  aiProvider: string | null;
+  isLocalFallback: boolean; // Indique si on utilise Ollama local
 }
 
 // Notification callback type
@@ -47,6 +54,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     error: null,
     pendingAction: null,
     aiProvider: null,
+    isLocalFallback: false,
   });
 
   // Store notification push function in a ref to avoid dependency issues
@@ -55,8 +63,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     notifyRef.current = notificationPush;
   }, [notificationPush]);
 
-  // Helper to push notifications - only for important events
-  // Map NotificationType to NotificationPriority
+  // Helper to push notifications
   const notify = useCallback((
     message: string,
     type: NotificationType = 'info',
@@ -64,7 +71,6 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     options?: { action?: { label: string; onClick: () => void } }
   ) => {
     if (notifyRef.current) {
-      // Map type to priority if needed
       const mappedPriority: NotificationPriority = 
         type === 'error' ? 'critical' :
         type === 'warning' ? 'high' :
@@ -81,11 +87,75 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     }
   }, []);
 
+  /**
+   * Parse la réponse de l'IA et met à jour l'état
+   */
+  const parseAndUpdateResponse = useCallback((fullContent: string, provider: string, isLocal: boolean) => {
+    let parsedResponse: { thought?: string; response?: { type: string; schema: CognitiveUISchema } } | null = null;
+    
+    try {
+      const jsonMatch = fullContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsedResponse = JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.error('Failed to parse AI response:', e);
+      notify('Erreur lors de l\'analyse de la réponse', 'warning', 'medium');
+    }
+
+    return {
+      thought: parsedResponse?.thought || null,
+      schema: parsedResponse?.response?.schema || null,
+      aiProvider: provider,
+      isLocalFallback: isLocal,
+    };
+  }, [notify]);
+
+  /**
+   * Tente d'appeler Ollama localement (fallback Electron)
+   */
+  const tryLocalOllama = useCallback(async (
+    allMessages: Message[]
+  ): Promise<{ success: boolean; fullContent: string; error?: string }> => {
+    if (!isElectronEnvironment()) {
+      return { success: false, fullContent: '', error: 'Not in Electron' };
+    }
+
+    const ollamaReady = await isOllamaAvailable();
+    if (!ollamaReady) {
+      return { success: false, fullContent: '', error: 'Ollama not available' };
+    }
+
+    notify('Fallback vers IA locale (Ollama)...', 'info', 'medium');
+    
+    // Récupérer le contexte système
+    const systemContext = await getSystemContext();
+    
+    let fullContent = '';
+    const result = await callOllamaLocal(
+      allMessages.map(m => ({ ...m, role: m.role as 'user' | 'assistant' })),
+      (chunk) => {
+        fullContent += chunk;
+        // On pourrait mettre à jour le state pour du streaming ici
+      },
+      systemContext
+    );
+
+    if (result.success) {
+      notify(`IA locale: ${result.model}`, 'success', 'low');
+    }
+
+    return {
+      success: result.success,
+      fullContent: result.fullResponse,
+      error: result.error,
+    };
+  }, [notify]);
+
   const sendMessage = useCallback(async (input: string, action?: ActionPayload) => {
     // Build user message
     let messageContent = input;
     
-    // Include action in message if provided
     if (action) {
       messageContent = JSON.stringify({
         text: input,
@@ -97,21 +167,27 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     }
     
     const userMessage: Message = { role: 'user', content: messageContent };
+    const allMessages = [...state.messages, userMessage];
     
     setState(prev => ({
       ...prev,
-      messages: [...prev.messages, userMessage],
+      messages: allMessages,
       isLoading: true,
       isStreaming: true,
       error: null,
       schema: null,
       thought: null,
       pendingAction: null,
+      isLocalFallback: false,
     }));
 
-    // NO notification on start - reduces spam
+    let fullContent = '';
+    let aiProvider: string | null = null;
+    let isLocalFallback = false;
+    let cloudFailed = false;
 
     try {
+      // === ÉTAPE 1: Essayer la Cloud Function ===
       const response = await fetch(CHAT_URL, {
         method: 'POST',
         headers: {
@@ -119,144 +195,147 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
           'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
         body: JSON.stringify({
-          messages: [...state.messages, userMessage],
+          messages: allMessages,
         }),
       });
 
       // Extract AI provider from response headers
-      const aiProvider = response.headers.get('X-AI-Provider') || null;
-      if (aiProvider) {
-        setState(prev => ({ ...prev, aiProvider }));
-      }
+      aiProvider = response.headers.get('X-AI-Provider') || null;
 
       if (!response.ok) {
-        // Try to extract error details from response body
+        cloudFailed = true;
+        
+        // Essayer d'extraire les détails de l'erreur
         let errorDetails = '';
         try {
           const errorBody = await response.json();
           errorDetails = errorBody.error || errorBody.details || '';
         } catch {
-          // Ignore JSON parse errors
+          // Ignore
         }
         
-        if (response.status === 429) {
-          const errorMsg = `Limite de requêtes atteinte${errorDetails ? `: ${errorDetails}` : ''}`;
-          notify(errorMsg, 'error', 'high');
-          throw new Error(errorMsg);
-        }
-        if (response.status === 402) {
-          const errorMsg = `Quota dépassé${errorDetails ? `: ${errorDetails}` : ''}`;
-          notify(errorMsg, 'error', 'critical');
-          throw new Error(errorMsg);
-        }
+        console.warn(`Cloud function failed (${response.status}): ${errorDetails}`);
         
-        const errorMsg = `Erreur ${response.status}${errorDetails ? `: ${errorDetails}` : ''}`;
-        notify(errorMsg, 'error', 'high');
-        throw new Error(errorMsg);
-      }
+        // On continue pour essayer le fallback local
+      } else if (response.body) {
+        // Lire le stream de la cloud function
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let textBuffer = '';
 
-      if (!response.body) {
-        throw new Error('No response body');
-      }
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let fullContent = '';
-      let textBuffer = '';
+          textBuffer += decoder.decode(value, { stream: true });
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+          let newlineIndex: number;
+          while ((newlineIndex = textBuffer.indexOf('\n')) !== -1) {
+            let line = textBuffer.slice(0, newlineIndex);
+            textBuffer = textBuffer.slice(newlineIndex + 1);
 
-        textBuffer += decoder.decode(value, { stream: true });
+            if (line.endsWith('\r')) line = line.slice(0, -1);
+            if (line.startsWith(':') || line.trim() === '') continue;
+            if (!line.startsWith('data: ')) continue;
 
-        let newlineIndex: number;
-        while ((newlineIndex = textBuffer.indexOf('\n')) !== -1) {
-          let line = textBuffer.slice(0, newlineIndex);
-          textBuffer = textBuffer.slice(newlineIndex + 1);
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr === '[DONE]') break;
 
-          if (line.endsWith('\r')) line = line.slice(0, -1);
-          if (line.startsWith(':') || line.trim() === '') continue;
-          if (!line.startsWith('data: ')) continue;
-
-          const jsonStr = line.slice(6).trim();
-          if (jsonStr === '[DONE]') break;
-
-          try {
-            const parsed = JSON.parse(jsonStr);
-            const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-            if (content) {
-              fullContent += content;
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+              if (content) {
+                fullContent += content;
+              }
+            } catch {
+              textBuffer = line + '\n' + textBuffer;
+              break;
             }
-          } catch {
-            textBuffer = line + '\n' + textBuffer;
-            break;
           }
         }
       }
-
-      // Parse the full response
-      let parsedResponse: { thought?: string; response?: { type: string; schema: CognitiveUISchema } } | null = null;
-      
-      try {
-        // Try to extract JSON from the response
-        const jsonMatch = fullContent.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          parsedResponse = JSON.parse(jsonMatch[0]);
-        }
-      } catch (e) {
-        console.error('Failed to parse AI response:', e);
-        notify('Erreur lors de l\'analyse de la réponse', 'warning', 'medium');
-      }
-
-      const assistantMessage: Message = { role: 'assistant', content: fullContent };
-
-      // Check for system actions in the AI response
-      const systemActions = parseSystemActions(fullContent);
-      let systemResults: SystemExecutionResult[] = [];
-      
-      if (systemActions.length > 0 && window.cognitiveBridge) {
-        setState(prev => ({ ...prev, isExecutingSystem: true }));
-        notify('Exécution des commandes système...', 'alert', 'medium');
-        
-        for (const action of systemActions) {
-          const result = await executeSystemAction(action);
-          systemResults.push({
-            action: action.type,
-            success: result.success,
-            output: formatActionResult(result),
-          });
-          
-          if (!result.success) {
-            notify(`Échec: ${action.type}`, 'error', 'high');
-          }
-        }
-        
-        notify(`${systemResults.length} commande(s) exécutée(s)`, 'success', 'medium');
-      }
-
-      setState(prev => ({
-        ...prev,
-        messages: [...prev.messages, assistantMessage],
-        thought: parsedResponse?.thought || null,
-        schema: parsedResponse?.response?.schema || null,
-        isLoading: false,
-        isStreaming: false,
-        isExecutingSystem: false,
-        systemResults,
-      }));
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      notify(`Erreur: ${errorMessage}`, 'error', 'high');
+      cloudFailed = true;
+      console.warn('Cloud function error:', error);
+    }
+
+    // === ÉTAPE 2: Si Cloud a échoué, essayer Ollama local (Electron seulement) ===
+    if (cloudFailed && isElectronEnvironment()) {
+      const localResult = await tryLocalOllama(allMessages);
+      
+      if (localResult.success) {
+        fullContent = localResult.fullContent;
+        aiProvider = 'ollama-local';
+        isLocalFallback = true;
+      } else {
+        // Tout a échoué
+        const errorMsg = `Tous les modèles IA indisponibles. Cloud: échec, Local: ${localResult.error}`;
+        notify(errorMsg, 'error', 'critical');
+        
+        setState(prev => ({
+          ...prev,
+          isLoading: false,
+          isStreaming: false,
+          error: errorMsg,
+        }));
+        return;
+      }
+    } else if (cloudFailed) {
+      // Pas d'Electron, pas de fallback
+      const errorMsg = 'Service IA temporairement indisponible';
+      notify(errorMsg, 'error', 'high');
       
       setState(prev => ({
         ...prev,
         isLoading: false,
         isStreaming: false,
-        error: errorMessage,
+        error: errorMsg,
       }));
+      return;
     }
-  }, [state.messages, notify]);
+
+    // === ÉTAPE 3: Parser la réponse ===
+    const parsed = parseAndUpdateResponse(fullContent, aiProvider || 'unknown', isLocalFallback);
+    const assistantMessage: Message = { role: 'assistant', content: fullContent };
+
+    // === ÉTAPE 4: Exécuter les actions système si présentes ===
+    const systemActions = parseSystemActions(fullContent);
+    let systemResults: SystemExecutionResult[] = [];
+    
+    if (systemActions.length > 0 && window.cognitiveBridge) {
+      setState(prev => ({ ...prev, isExecutingSystem: true }));
+      notify('Exécution des commandes système...', 'alert', 'medium');
+      
+      for (const sysAction of systemActions) {
+        const result = await executeSystemAction(sysAction);
+        systemResults.push({
+          action: sysAction.type,
+          success: result.success,
+          output: formatActionResult(result),
+        });
+        
+        if (!result.success) {
+          notify(`Échec: ${sysAction.type}`, 'error', 'high');
+        }
+      }
+      
+      notify(`${systemResults.length} commande(s) exécutée(s)`, 'success', 'medium');
+    }
+
+    // === ÉTAPE 5: Mettre à jour l'état final ===
+    setState(prev => ({
+      ...prev,
+      messages: [...prev.messages, assistantMessage],
+      thought: parsed.thought,
+      schema: parsed.schema,
+      aiProvider: parsed.aiProvider,
+      isLocalFallback: parsed.isLocalFallback,
+      isLoading: false,
+      isStreaming: false,
+      isExecutingSystem: false,
+      systemResults,
+    }));
+  }, [state.messages, notify, tryLocalOllama, parseAndUpdateResponse]);
 
   // Handle component actions
   const handleAction = useCallback((action: ActionPayload) => {
@@ -265,14 +344,12 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     const actionType = action.payload.actionType as string;
     const formData = action.payload.formData as Record<string, unknown> | undefined;
     
-    // Log form data if present - NO notification, just log
     if (formData && Object.keys(formData).length > 0) {
       console.log('Form data collected:', formData);
     }
     
-    // Button clicks with form data are auto-submitted
+    // Boutons avec form data sont auto-soumis
     if (actionType === 'button-click' || actionType === 'form-submit') {
-      // NO notification - action happens silently
       let actionMessage = `Action: ${action.id}`;
       if (formData && Object.keys(formData).length > 0) {
         actionMessage += ` avec données: ${JSON.stringify(formData)}`;
@@ -281,14 +358,14 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       return;
     }
     
-    // Input submit (Enter key) - auto-submit
+    // Input submit
     if (actionType === 'input-submit') {
       const actionMessage = `Soumission: ${action.id} - ${JSON.stringify(action.payload)}`;
       sendMessage(actionMessage, action);
       return;
     }
     
-    // Timer complete - this IS notification-worthy
+    // Timer complete - notification-worthy
     if (actionType === 'timer-complete') {
       notify('Timer terminé!', 'alert', 'high', {
         action: {
@@ -299,7 +376,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       return;
     }
     
-    // Table row selection - silent
+    // Table row selection
     if (actionType === 'table-row-select') {
       sendMessage(`Sélection table: ligne ${action.payload.rowIndex}`, action);
       return;
@@ -319,21 +396,19 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       return;
     }
     
-    // Other actions that might need manual confirmation
+    // Actions nécessitant confirmation manuelle
     if (actionType === 'list-select' || actionType === 'input-change') {
-      // Store pending action for manual confirmation
       setState(prev => ({
         ...prev,
         pendingAction: action,
       }));
     } else {
-      // Default: send action immediately
       const actionMessage = `Action: ${action.id} - ${JSON.stringify(action.payload)}`;
       sendMessage(actionMessage, action);
     }
   }, [sendMessage, notify]);
 
-  // Confirm and send pending action with custom message
+  // Confirm pending action
   const confirmAction = useCallback((customMessage?: string) => {
     if (!state.pendingAction) return;
     
@@ -342,7 +417,6 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
   }, [state.pendingAction, sendMessage]);
 
   const reset = useCallback(() => {
-    // Silent reset - no notification
     setState({
       messages: [],
       schema: null,
@@ -354,6 +428,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       error: null,
       pendingAction: null,
       aiProvider: null,
+      isLocalFallback: false,
     });
   }, []);
 
@@ -363,7 +438,6 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     handleAction,
     confirmAction,
     reset,
-    // Expose notify for external use (alerts from components)
     pushAlert: notify,
   };
 }
