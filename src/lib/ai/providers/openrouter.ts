@@ -38,7 +38,7 @@ export async function streamOpenRouter(
     };
   }
 
-  const model = OPENROUTER_MODELS[modelIndex] || OPENROUTER_MODELS[0];
+  const model = OPENROUTER_MODELS.slice().reverse()[modelIndex] || OPENROUTER_MODELS.slice().reverse()[0];
 
   try {
     const response = await fetch(OPENROUTER_ENDPOINT, {
