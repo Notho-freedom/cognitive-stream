@@ -7,17 +7,13 @@ import {
   formatActionResultForAI, 
   formatActionResult 
 } from '@/lib/systemActions';
-import { 
-  isElectronEnvironment, 
-  isOllamaAvailable, 
-  callOllamaLocal, 
-  getSystemContext 
-} from '@/lib/ollamaLocal';
+import { orchestrateAI, isElectronEnvironment } from '@/lib/ai';
+import type { AIMessage, OrchestratorResult } from '@/lib/ai';
 import generateUnifiedSystemPrompt from '@/lib/UNIFIED_SYSTEM_PROMPT';
 
 // ═══════════════════════════════════════════════════════════════
-// COGNITIVE CHAT HOOK WITH INTELLIGENT FEEDBACK LOOP
-// L'IA reçoit les résultats des commandes et adapte son schéma
+// COGNITIVE CHAT HOOK WITH AI ORCHESTRATOR
+// Utilise l'orchestrateur pour gérer les providers IA en cascade
 // ═══════════════════════════════════════════════════════════════
 
 type NotificationType = 'info' | 'success' | 'warning' | 'error' | 'alert';
@@ -45,13 +41,13 @@ interface CognitiveChatState {
   error: string | null;
   pendingAction: ActionPayload | null;
   aiProvider: string | null;
+  aiModel: string | null;
   isLocalFallback: boolean;
   environmentMode: 'web' | 'electron';
+  triedProviders: string[];
 }
 
 type NotificationPushFn = (notification: Omit<CognitiveNotification, 'id' | 'timestamp'>) => string;
-
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
 export function useCognitiveChat(notificationPush?: NotificationPushFn) {
   const [environmentMode] = useState<'web' | 'electron'>(() => 
@@ -69,8 +65,10 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     error: null,
     pendingAction: null,
     aiProvider: null,
+    aiModel: null,
     isLocalFallback: false,
     environmentMode,
+    triedProviders: [],
   });
 
   const notifyRef = useRef(notificationPush);
@@ -123,7 +121,7 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     }
   }, [environmentMode]);
 
-  const parseAndUpdateResponse = useCallback((fullContent: string, provider: string, isLocal: boolean) => {
+  const parseAndUpdateResponse = useCallback((fullContent: string, result: OrchestratorResult) => {
     let parsedResponse: { thought?: string; response?: { type: string; schema: CognitiveUISchema } } | null = null;
     
     try {
@@ -139,50 +137,15 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     return {
       thought: parsedResponse?.thought || null,
       schema: parsedResponse?.response?.schema || null,
-      aiProvider: provider,
-      isLocalFallback: isLocal,
-    };
-  }, [notify]);
-
-  const tryLocalOllama = useCallback(async (
-    allMessages: Message[]
-  ): Promise<{ success: boolean; fullContent: string; error?: string }> => {
-    if (!isElectronEnvironment()) {
-      return { success: false, fullContent: '', error: 'Not in Electron' };
-    }
-
-    const ollamaReady = await isOllamaAvailable();
-    if (!ollamaReady) {
-      return { success: false, fullContent: '', error: 'Ollama not available' };
-    }
-
-    notify('Fallback vers IA locale (Ollama)...', 'info', 'medium');
-    
-    const systemContext = await getSystemContext();
-    
-    let fullContent = '';
-    const result = await callOllamaLocal(
-      allMessages.map(m => ({ ...m, role: m.role as 'user' | 'assistant' })),
-      (chunk) => {
-        fullContent += chunk;
-      },
-      systemContext
-    );
-
-    if (result.success) {
-      notify(`IA locale: ${result.model}`, 'success', 'low');
-    }
-
-    return {
-      success: result.success,
-      fullContent: result.fullResponse,
-      error: result.error,
+      aiProvider: result.provider,
+      aiModel: result.model,
+      isLocalFallback: result.provider === 'ollama-local',
+      triedProviders: result.triedProviders,
     };
   }, [notify]);
 
   /**
-   * NOUVEAU: Fonction pour exécuter les commandes système et renvoyer
-   * les résultats à l'IA pour qu'elle construise un schéma adapté
+   * Exécute les commandes système et renvoie les résultats à l'IA
    */
   const executeSystemActionsWithFeedback = useCallback(async (
     aiResponse: string,
@@ -217,7 +180,6 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     
     const results: Array<{ action: string; success: boolean; output: string; data?: unknown }> = [];
     
-    // Exécuter chaque commande et collecter les résultats structurés
     for (const sysAction of systemActions) {
       const result = await executeSystemAction(sysAction);
       const formattedForAI = formatActionResultForAI(result);
@@ -238,8 +200,6 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     
     setState(prev => ({ ...prev, isExecutingSystem: false, systemResults: results }));
     
-    // Les commandes ont été exécutées, on doit redemander à l'IA
-    // de construire un schéma basé sur les résultats
     return {
       hasSystemActions: true,
       systemResults: results,
@@ -248,124 +208,85 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
   }, [environmentMode, notify]);
 
   /**
-   * NOUVEAU: Demande à l'IA de construire un schéma basé sur les résultats système
+   * Demande à l'IA de construire un schéma basé sur les résultats système
    */
   const requestSchemaFromResults = useCallback(async (
     systemResults: Array<{ action: string; success: boolean; output: string; data?: unknown }>,
     originalMessages: Message[],
     systemPrompt: string
-  ): Promise<string> => {
-    // Construire un message système avec les résultats
-  const resultsMessage: Message = {
-    role: 'user',
-    content: `
-  SYSTEM COMMAND EXECUTION LOGS
+  ): Promise<OrchestratorResult> => {
+    const resultsMessage: Message = {
+      role: 'user',
+      content: `
+SYSTEM COMMAND EXECUTION LOGS
 
-  IMPORTANT:
-  - Everything below is PLAIN TEXT.
-  - This is NOT JSON.
-  - Do NOT attempt to parse, fix, or reinterpret the content.
-  - Treat it strictly as execution logs.
+IMPORTANT:
+- Everything below is PLAIN TEXT.
+- This is NOT JSON.
+- Do NOT attempt to parse, fix, or reinterpret the content.
+- Treat it strictly as execution logs.
 
-  ==================== BEGIN LOGS ====================
+==================== BEGIN LOGS ====================
 
-  ${systemResults.map((r, i) => `
-  [COMMAND ${i + 1}]
+${systemResults.map((r, i) => `
+[COMMAND ${i + 1}]
 
-  ACTION:
-  ${r.action}
+ACTION:
+${r.action}
 
-  STATUS:
-  ${r.success ? 'SUCCESS' : 'FAILURE'}
+STATUS:
+${r.success ? 'SUCCESS' : 'FAILURE'}
 
-  OUTPUT:
-  ${r.output && r.output.trim() ? r.output : '(no output)'}
+OUTPUT:
+${r.output && r.output.trim() ? r.output : '(no output)'}
 
-  DATA (STRINGIFIED TEXT, NOT JSON):
-  ${JSON.stringify(r.data)}
+DATA (STRINGIFIED TEXT, NOT JSON):
+${JSON.stringify(r.data)}
 
-  `).join('\n----------------------------------------\n')}
+`).join('\n----------------------------------------\n')}
 
-  ==================== END LOGS ====================
+==================== END LOGS ====================
 
-  TASK:
+TASK:
 
-  You have received system execution logs.
-  Design a UI SCHEMA that displays these results clearly and structurally.
+You have received system execution logs.
+Design a UI SCHEMA that displays these results clearly and structurally.
 
-  REQUIREMENTS:
-  - Return ONLY a valid JSON object
-  - Use the standard UI schema format
-  - Do NOT include explanations
-  - Do NOT repeat the logs
-  - Choose appropriate UI components (cards, lists, tables, status indicators)
-  `,
-  };
+REQUIREMENTS:
+- Return ONLY a valid JSON object
+- Use the standard UI schema format
+- Do NOT include explanations
+- Do NOT repeat the logs
+- Choose appropriate UI components (cards, lists, tables, status indicators)
+`,
+    };
 
+    const messagesWithResults: AIMessage[] = [
+      ...originalMessages.map(m => ({ role: m.role, content: m.content })),
+      { role: resultsMessage.role, content: resultsMessage.content },
+    ];
 
-    const messagesWithResults = [...originalMessages, resultsMessage];
-    
     let fullContent = '';
-    let aiProvider: string | null = null;
     
-    try {
-      // Appeler l'IA avec les résultats
-      const response = await fetch(CHAT_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+    const result = await orchestrateAI(
+      messagesWithResults,
+      systemPrompt,
+      (chunk) => {
+        fullContent += chunk;
+      },
+      {
+        enableLocalFallback: environmentMode === 'electron',
+        onProviderChange: (provider, model) => {
+          console.log(`[Schema] Using ${provider}/${model}`);
         },
-        body: JSON.stringify({
-          messages: messagesWithResults,
-          systemPrompt,
-        }),
-      });
-
-      aiProvider = response.headers.get('X-AI-Provider') || null;
-
-      if (response.ok && response.body) {
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let textBuffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          textBuffer += decoder.decode(value, { stream: true });
-
-          let newlineIndex: number;
-          while ((newlineIndex = textBuffer.indexOf('\n')) !== -1) {
-            let line = textBuffer.slice(0, newlineIndex);
-            textBuffer = textBuffer.slice(newlineIndex + 1);
-
-            if (line.endsWith('\r')) line = line.slice(0, -1);
-            if (line.startsWith(':') || line.trim() === '') continue;
-            if (!line.startsWith('data: ')) continue;
-
-            const jsonStr = line.slice(6).trim();
-            if (jsonStr === '[DONE]') break;
-
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-              if (content) {
-                fullContent += content;
-              }
-            } catch {
-              textBuffer = line + '\n' + textBuffer;
-              break;
-            }
-          }
-        }
       }
-    } catch (error) {
-      console.error('Failed to request schema from results:', error);
-    }
-    
-    return fullContent;
-  }, []);
+    );
+
+    return {
+      ...result,
+      fullContent,
+    };
+  }, [environmentMode]);
 
   const sendMessage = useCallback(async (input: string, action?: ActionPayload) => {
     const systemPrompt = await generateSystemPrompt();
@@ -395,107 +316,58 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       thought: null,
       pendingAction: null,
       isLocalFallback: false,
+      triedProviders: [],
     }));
 
     let fullContent = '';
-    let aiProvider: string | null = null;
-    let isLocalFallback = false;
-    let cloudFailed = false;
 
-    try {
-      // === ÉTAPE 1: Première requête à l'IA ===
-      const response = await fetch(CHAT_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: JSON.stringify({
-          messages: allMessages,
-          systemPrompt,
-        }),
-      });
-
-      aiProvider = response.headers.get('X-AI-Provider') || null;
-
-      if (!response.ok) {
-        cloudFailed = true;
-      } else if (response.body) {
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let textBuffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          textBuffer += decoder.decode(value, { stream: true });
-
-          let newlineIndex: number;
-          while ((newlineIndex = textBuffer.indexOf('\n')) !== -1) {
-            let line = textBuffer.slice(0, newlineIndex);
-            textBuffer = textBuffer.slice(newlineIndex + 1);
-
-            if (line.endsWith('\r')) line = line.slice(0, -1);
-            if (line.startsWith(':') || line.trim() === '') continue;
-            if (!line.startsWith('data: ')) continue;
-
-            const jsonStr = line.slice(6).trim();
-            if (jsonStr === '[DONE]') break;
-
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-              if (content) {
-                fullContent += content;
-              }
-            } catch {
-              textBuffer = line + '\n' + textBuffer;
-              break;
-            }
-          }
-        }
-      }
-    } catch (error) {
-      cloudFailed = true;
-    }
-
-    // === ÉTAPE 2: Fallback local si échec cloud ===
-    if (cloudFailed && environmentMode === 'electron') {
-      const localResult = await tryLocalOllama(allMessages);
-      
-      if (localResult.success) {
-        fullContent = localResult.fullContent;
-        aiProvider = 'ollama-local';
-        isLocalFallback = true;
-      } else {
-        const errorMsg = `Tous les modèles IA indisponibles`;
-        notify(errorMsg, 'error', 'critical');
+    // === UTILISATION DE L'ORCHESTRATEUR ===
+    const result = await orchestrateAI(
+      allMessages.map(m => ({ role: m.role, content: m.content })),
+      systemPrompt,
+      (chunk) => {
+        fullContent += chunk;
+        // Mise à jour progressive du streaming
         setState(prev => ({
           ...prev,
-          isLoading: false,
-          isStreaming: false,
-          error: errorMsg,
+          thought: fullContent.length < 200 ? fullContent : null,
         }));
-        return;
+      },
+      {
+        enableLocalFallback: environmentMode === 'electron',
+        onProviderChange: (provider, model) => {
+          notify(`Provider: ${provider} (${model})`, 'info', 'low');
+          setState(prev => ({ 
+            ...prev, 
+            aiProvider: provider, 
+            aiModel: model,
+            isLocalFallback: provider === 'ollama-local',
+          }));
+        },
+        onProviderError: (provider, error) => {
+          console.warn(`[Orchestrator] ${provider} failed: ${error}`);
+        },
       }
-    } else if (cloudFailed) {
-      const errorMsg = 'Service IA temporairement indisponible';
-      notify(errorMsg, 'error', 'high');
+    );
+
+    if (!result.success) {
+      const errorMsg = result.error || 'Tous les providers IA indisponibles';
+      notify(errorMsg, 'error', 'critical');
       setState(prev => ({
         ...prev,
         isLoading: false,
         isStreaming: false,
         error: errorMsg,
+        triedProviders: result.triedProviders,
       }));
       return;
     }
 
-    const assistantMessage: Message = { role: 'assistant', content: fullContent };
+    const assistantMessage: Message = { role: 'assistant', content: result.fullContent };
 
-    // === ÉTAPE 3: BOUCLE DE FEEDBACK - Exécuter les commandes système ===
+    // === BOUCLE DE FEEDBACK - Exécuter les commandes système ===
     const feedbackResult = await executeSystemActionsWithFeedback(
-      fullContent,
+      result.fullContent,
       [...allMessages, assistantMessage]
     );
 
@@ -503,22 +375,19 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     let finalThought = null;
 
     if (feedbackResult.shouldRequestNewSchema && feedbackResult.systemResults.length > 0) {
-      // === ÉTAPE 4: Redemander à l'IA de construire un schéma avec les résultats ===
       notify('Construction du schéma avec les résultats...', 'info', 'medium');
       
-      const schemaResponse = await requestSchemaFromResults(
+      const schemaResult = await requestSchemaFromResults(
         feedbackResult.systemResults,
         [...allMessages, assistantMessage],
         systemPrompt
       );
       
-      // Parser le nouveau schéma
-      const parsed = parseAndUpdateResponse(schemaResponse, aiProvider || 'unknown', isLocalFallback);
+      const parsed = parseAndUpdateResponse(schemaResult.fullContent, schemaResult);
       finalSchema = parsed.schema;
       finalThought = parsed.thought;
       
-      // Ajouter la réponse de schéma aux messages
-      const schemaMessage: Message = { role: 'assistant', content: schemaResponse };
+      const schemaMessage: Message = { role: 'assistant', content: schemaResult.fullContent };
       
       setState(prev => ({
         ...prev,
@@ -526,14 +395,15 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
         thought: finalThought,
         schema: finalSchema,
         aiProvider: parsed.aiProvider,
+        aiModel: parsed.aiModel,
         isLocalFallback: parsed.isLocalFallback,
         isLoading: false,
         isStreaming: false,
         systemResults: feedbackResult.systemResults,
+        triedProviders: parsed.triedProviders,
       }));
     } else {
-      // Pas de commandes système ou pas besoin de nouveau schéma
-      const parsed = parseAndUpdateResponse(fullContent, aiProvider || 'unknown', isLocalFallback);
+      const parsed = parseAndUpdateResponse(result.fullContent, result);
       
       setState(prev => ({
         ...prev,
@@ -541,16 +411,17 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
         thought: parsed.thought,
         schema: parsed.schema,
         aiProvider: parsed.aiProvider,
+        aiModel: parsed.aiModel,
         isLocalFallback: parsed.isLocalFallback,
         isLoading: false,
         isStreaming: false,
         systemResults: feedbackResult.systemResults,
+        triedProviders: parsed.triedProviders,
       }));
     }
   }, [
     state.messages, 
     notify, 
-    tryLocalOllama, 
     parseAndUpdateResponse, 
     generateSystemPrompt, 
     environmentMode,
@@ -641,8 +512,10 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
       error: null,
       pendingAction: null,
       aiProvider: null,
+      aiModel: null,
       isLocalFallback: false,
       environmentMode,
+      triedProviders: [],
     });
   }, [environmentMode]);
 
