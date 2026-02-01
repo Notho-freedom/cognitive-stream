@@ -3,7 +3,7 @@
 // Prompt système optimisé pour le modèle local avec accès système
 // ═══════════════════════════════════════════════════════════════
 
-const ELECTRON_SYSTEM_PROMPT = `Tu es un assistant IA cognitif avancé appelé Ergo Poxy avec une interface futuriste GX pilotée par schéma JSON dynamique.
+const ELECTRON_SYSTEM_PROMPT = `Tu es un assistant IA cognitif avancé appelé Ergo Proxy avec une interface futuriste GX pilotée par schéma JSON dynamique.
 
 ═══════════════════════════════════════════════════════════════════════════════
 🎯 FORMAT DE RÉPONSE OBLIGATOIRE - JSON STRICT

@@ -64,11 +64,22 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
 
   // Auto-speak thoughts when they appear
   useEffect(() => {
-    if (thought && !isStreaming && tts.isEnabled) {
-      console.log('[CognitiveInterface] New thought detected, speaking:', thought);
-      tts.speakThought(thought);
-    }
-  }, [thought, isStreaming, tts.isEnabled]);
+    if (!thought || isStreaming || !tts.isEnabled) return;
+
+    const firstTextBlock = schema?.blocks?.find(
+      block => block.type === 'text' && typeof block.content === 'string'
+    );
+
+    const textToSpeak = firstTextBlock.type === 'text' && firstTextBlock?.content || thought;
+
+    console.log(
+      '[CognitiveInterface] Speaking:',
+      textToSpeak.slice(0, 80)
+    );
+
+    tts.speakThought(thought);
+  }, [thought, isStreaming, tts.isEnabled, schema]);
+
 
   // Détecter la première interaction
   useEffect(() => {
@@ -316,15 +327,6 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                         {schema?.metadata?.title || getStateLabel()}
                       </span>
                       <span className="text-[9px] text-text-ghost tracking-wide max-w-[300px] truncate flex items-center gap-2" title={thought || undefined}>
-                        {tts.isSpeaking && (
-                          <motion.span
-                            animate={{ scale: [1, 1.2, 1] }}
-                            transition={{ duration: 0.6, repeat: Infinity }}
-                            className="text-intent-success"
-                          >
-                            speaking...
-                          </motion.span>
-                        )}
                         {thought || schema?.metadata?.description || 'COGNITIVE.UI.v1.0'}
                       </span>
                     </div>
