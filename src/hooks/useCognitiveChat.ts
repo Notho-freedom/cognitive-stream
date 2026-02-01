@@ -256,32 +256,48 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
     systemPrompt: string
   ): Promise<string> => {
     // Construire un message système avec les résultats
-    const resultsMessage: Message = {
-      role: 'system',
-      content: `RÉSULTATS DES COMMANDES SYSTÈME:
+  const resultsMessage: Message = {
+    role: 'user',
+    content: `
+  SYSTEM EXECUTION RESULTS (TEXT LOG ONLY)
 
-${systemResults.map((r, i) => `
-Commande ${i + 1}: ${r.action}
-Statut: ${r.success ? '✓ SUCCÈS' : '✗ ÉCHEC'}
-Résultat: ${r.output}
+  The following section contains RAW TEXT OUTPUT from executed system commands.
+  This is NOT JSON to be parsed. Treat everything below as plain text logs.
 
-Données structurées:
-${JSON.stringify(r.data, null, 2)}
-`).join('\n---\n')}
+  ==================== BEGIN RESULTS ====================
 
-INSTRUCTIONS:
-Tu as maintenant les résultats des commandes que tu as lancées.
-Construis un schéma UI adapté qui affiche ces résultats de manière claire et structurée.
+  ${systemResults.map((r, i) => `
+  [COMMAND ${i + 1}]
+  ACTION:
+  ${r.action}
 
-Utilise les composants appropriés:
-- Pour les listes de fichiers: "table" ou "list"
-- Pour le contenu de fichiers: "code" ou "text"
-- Pour les erreurs: "alert" avec variant "error"
-- Pour les succès: "status" avec state "success"
+  STATUS:
+  ${r.success ? 'SUCCESS' : 'FAILURE'}
 
-RAPPEL: Retourne UNIQUEMENT un JSON valide avec le format habituel.
-`,
-    };
+  RAW OUTPUT:
+  ${r.output || '(no output)'}
+
+  RAW DATA (STRINGIFIED, DO NOT PARSE):
+  ${JSON.stringify(r.data)}
+
+  `).join('\n----------------------------------------\n')}
+
+  ==================== END RESULTS ====================
+
+  INSTRUCTIONS:
+
+  You have received system command results as plain text logs.
+  Your task is to DESIGN a UI SCHEMA that presents these results clearly and structurally.
+
+  RULES:
+  - Return ONLY a valid JSON object
+  - Do NOT repeat the logs
+  - Do NOT explain your reasoning
+  - Use the standard UI schema format
+  - Choose appropriate components (lists, cards, tables, status indicators)
+  `,
+  };
+
 
     const messagesWithResults = [...originalMessages, resultsMessage];
     
