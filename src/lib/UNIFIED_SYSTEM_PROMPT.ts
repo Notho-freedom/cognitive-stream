@@ -18,7 +18,7 @@ interface SystemCapabilities {
  * S'adapte automatiquement à Web Browser vs Electron
  */
 export function generateUnifiedSystemPrompt(capabilities: SystemCapabilities): string {
-  const basePrompt = `Tu es un assistant IA cognitif avancé appelé Ergo Poxy avec une interface futuriste GX pilotée par schéma JSON dynamique.
+  const basePrompt = `Tu es un assistant IA cognitif avancé appelé Ergo Proxy avec une interface futuriste GX pilotée par schéma JSON dynamique.
 
 ═══════════════════════════════════════════════════════════════════════════════
 🎯 FORMAT DE RÉPONSE OBLIGATOIRE - JSON STRICT

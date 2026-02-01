@@ -7,7 +7,7 @@
 import ELECTRON_SYSTEM_PROMPT from './electronSystemPrompt';
 
 const OLLAMA_ENDPOINT = 'http://localhost:11434/api/generate';
-const OLLAMA_MODEL = 'qwen2.5:32b';
+const OLLAMA_MODEL = 'llama3.2:3b';
 
 interface OllamaResponse {
   response: string;
@@ -151,7 +151,7 @@ export async function callOllamaLocal(
         fullResponse: '',
         error: `Ollama error ${response.status}: ${errorText}`,
         model: OLLAMA_MODEL,
-        provider: 'ollama-local',
+        provider: OLLAMA_MODEL,
       };
     }
     
@@ -161,7 +161,7 @@ export async function callOllamaLocal(
         fullResponse: '',
         error: 'No response body from Ollama',
         model: OLLAMA_MODEL,
-        provider: 'ollama-local',
+        provider: OLLAMA_MODEL,
       };
     }
     
@@ -213,7 +213,7 @@ export async function callOllamaLocal(
       success: true,
       fullResponse,
       model: OLLAMA_MODEL,
-      provider: 'ollama-local',
+      provider: OLLAMA_MODEL,
     };
   } catch (error) {
     return {
@@ -221,7 +221,7 @@ export async function callOllamaLocal(
       fullResponse: '',
       error: error instanceof Error ? error.message : 'Unknown Ollama error',
       model: OLLAMA_MODEL,
-      provider: 'ollama-local',
+      provider: OLLAMA_MODEL,
     };
   }
 }
