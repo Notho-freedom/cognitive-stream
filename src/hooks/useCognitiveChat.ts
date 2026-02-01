@@ -259,42 +259,46 @@ export function useCognitiveChat(notificationPush?: NotificationPushFn) {
   const resultsMessage: Message = {
     role: 'user',
     content: `
-  SYSTEM EXECUTION RESULTS (TEXT LOG ONLY)
+  SYSTEM COMMAND EXECUTION LOGS
 
-  The following section contains RAW TEXT OUTPUT from executed system commands.
-  This is NOT JSON to be parsed. Treat everything below as plain text logs.
+  IMPORTANT:
+  - Everything below is PLAIN TEXT.
+  - This is NOT JSON.
+  - Do NOT attempt to parse, fix, or reinterpret the content.
+  - Treat it strictly as execution logs.
 
-  ==================== BEGIN RESULTS ====================
+  ==================== BEGIN LOGS ====================
 
   ${systemResults.map((r, i) => `
   [COMMAND ${i + 1}]
+
   ACTION:
   ${r.action}
 
   STATUS:
   ${r.success ? 'SUCCESS' : 'FAILURE'}
 
-  RAW OUTPUT:
-  ${r.output || '(no output)'}
+  OUTPUT:
+  ${r.output && r.output.trim() ? r.output : '(no output)'}
 
-  RAW DATA (STRINGIFIED, DO NOT PARSE):
+  DATA (STRINGIFIED TEXT, NOT JSON):
   ${JSON.stringify(r.data)}
 
   `).join('\n----------------------------------------\n')}
 
-  ==================== END RESULTS ====================
+  ==================== END LOGS ====================
 
-  INSTRUCTIONS:
+  TASK:
 
-  You have received system command results as plain text logs.
-  Your task is to DESIGN a UI SCHEMA that presents these results clearly and structurally.
+  You have received system execution logs.
+  Design a UI SCHEMA that displays these results clearly and structurally.
 
-  RULES:
+  REQUIREMENTS:
   - Return ONLY a valid JSON object
-  - Do NOT repeat the logs
-  - Do NOT explain your reasoning
   - Use the standard UI schema format
-  - Choose appropriate components (lists, cards, tables, status indicators)
+  - Do NOT include explanations
+  - Do NOT repeat the logs
+  - Choose appropriate UI components (cards, lists, tables, status indicators)
   `,
   };
 
