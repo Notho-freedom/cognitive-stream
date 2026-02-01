@@ -7,7 +7,7 @@
 import ELECTRON_SYSTEM_PROMPT from './electronSystemPrompt';
 
 const OLLAMA_ENDPOINT = 'http://localhost:11434/api/generate';
-const OLLAMA_MODEL = 'mistral';
+const OLLAMA_MODEL = 'qwen2.5:32b';
 
 interface OllamaResponse {
   response: string;
@@ -80,7 +80,7 @@ INFORMATIONS SYSTÈME:
 • Mémoire totale: ${systemContext.memory ? Math.round(systemContext.memory.total / 1024 / 1024 / 1024) + ' GB' : 'inconnue'}
 • Mémoire libre: ${systemContext.memory ? Math.round(systemContext.memory.free / 1024 / 1024 / 1024) + ' GB' : 'inconnue'}
 • Uptime: ${systemContext.uptime ? Math.round(systemContext.uptime / 60) + ' minutes' : 'inconnu'}
-
+. Informations completes à exploité au besoin pour plus de details: ${systemContext}
 `;
   }
   
