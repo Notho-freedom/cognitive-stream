@@ -4,7 +4,7 @@ import { FuturisticFrame } from './FuturisticFrame';
 import { StateIndicator } from './StateIndicator';
 import { ThoughtStream } from './ThoughtStream';
 import { CognitiveRenderer } from './dynamic/CognitiveRenderer';
-import { useCognitiveChat } from '@/hooks/useCognitiveChat';
+import { useCognitiveBrain } from '@/hooks/useCognitiveBrain';
 import { useNotifications } from './NotificationQueue';
 import { useCognitiveTTS } from '@/hooks/useCognitiveTTS';
 import { cn } from '@/lib/utils';
@@ -28,6 +28,17 @@ const maxHeightClasses = {
   screen: 'max-h-[90vh]',
 };
 
+// Mapping des modes du cerveau pour affichage
+const brainModeLabels: Record<string, string> = {
+  idle: 'VEILLE',
+  listening: 'ÉCOUTE',
+  thinking: 'RÉFLEXION',
+  planning: 'PLANIFICATION',
+  executing: 'EXÉCUTION',
+  observing: 'OBSERVATION',
+  adapting: 'ADAPTATION',
+};
+
 interface CognitiveInterfaceProps {
   className?: string;
 }
@@ -39,6 +50,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
   
   const { push: notifyPush } = useNotifications();
   
+  // === UTILISATION DU CERVEAU COGNITIF ===
   const { 
     messages, 
     schema, 
@@ -50,12 +62,13 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     aiProvider,
     aiModel,
     isLocalFallback,
-    triedProviders,
+    mentalState,
+    activeTasks,
     sendMessage, 
     handleAction,
     confirmAction,
     reset 
-  } = useCognitiveChat(notifyPush);
+  } = useCognitiveBrain(notifyPush);
 
   // === TTS INTEGRATION ===
   const tts = useCognitiveTTS({
@@ -79,7 +92,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
       textToSpeak.slice(0, 80)
     );
 
-    tts.speakThought(thought);
+    tts.speakThought(textToSpeak);
   }, [thought, isStreaming, tts.isEnabled, schema]);
 
 
@@ -190,10 +203,16 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     return modelName ? `${providerName}:${modelName}` : providerName;
   };
 
-  // Affichage des providers essayés (debug)
-  const getTriedProvidersDisplay = () => {
-    if (triedProviders.length <= 1) return null;
-    return triedProviders.map(p => p.toUpperCase().slice(0, 3)).join('→');
+  // Affichage du mode du cerveau
+  const getBrainModeDisplay = () => {
+    if (!mentalState) return null;
+    return brainModeLabels[mentalState.mode] || mentalState.mode.toUpperCase();
+  };
+
+  // Affichage des tâches actives
+  const getActiveTasksDisplay = () => {
+    if (activeTasks.length === 0) return null;
+    return `${activeTasks.length} TASK${activeTasks.length > 1 ? 'S' : ''}`;
   };
 
   return (
@@ -261,13 +280,14 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
               transition={{ delay: 0.6 }}
               className="flex items-center justify-center gap-6 text-[9px] text-text-ghost font-mono tracking-wider"
             >
+              {/* Brain Mode */}
               <motion.div 
                 className="flex items-center gap-2"
                 animate={{ opacity: [0.5, 1, 0.5] }}
                 transition={{ duration: 2, repeat: Infinity }}
               >
                 <div className="w-1.5 h-1.5 rounded-full bg-intent-secondary" />
-                <span>MULTI-AI READY</span>
+                <span>BRAIN READY</span>
               </motion.div>
               
               <motion.div 
@@ -276,7 +296,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                 transition={{ duration: 2, repeat: Infinity, delay: 0.7 }}
               >
                 <div className="w-1.5 h-1.5 rounded-full bg-intent-primary" />
-                <span>GX.UI ACTIVE</span>
+                <span>ASYNC LOOP</span>
               </motion.div>
               
               {/* TTS indicator */}
@@ -440,12 +460,39 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   </div>
                 )}
 
-                {/* Bottom data bar */}
+                {/* Bottom data bar with Brain info */}
                 <div className="flex items-center justify-between mt-5 pt-3 border-t border-intent-primary/10">
                   <div className="flex items-center gap-4 text-[8px] text-text-ghost font-mono tracking-wide">
                     <motion.span animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 3, repeat: Infinity }}>
                       MSG:{messages.length}
                     </motion.span>
+                    
+                    {/* Brain Mode Display */}
+                    {getBrainModeDisplay() && (
+                      <motion.span 
+                        animate={{ opacity: [0.5, 1, 0.5] }} 
+                        transition={{ duration: 1.5, repeat: Infinity }}
+                        className={cn(
+                          mentalState?.mode === 'thinking' && 'text-intent-primary',
+                          mentalState?.mode === 'executing' && 'text-intent-focus',
+                          mentalState?.mode === 'observing' && 'text-intent-secondary',
+                        )}
+                      >
+                        🧠 {getBrainModeDisplay()}
+                      </motion.span>
+                    )}
+                    
+                    {/* Active Tasks */}
+                    {getActiveTasksDisplay() && (
+                      <motion.span 
+                        animate={{ opacity: [0.5, 1, 0.5] }} 
+                        transition={{ duration: 1, repeat: Infinity }}
+                        className="text-intent-focus"
+                      >
+                        ⚙️ {getActiveTasksDisplay()}
+                      </motion.span>
+                    )}
+                    
                     <motion.span 
                       animate={{ opacity: [0.5, 1, 0.5] }} 
                       transition={{ duration: 2.5, repeat: Infinity, delay: 0.8 }}
@@ -453,6 +500,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                     >
                       {getProviderDisplay()}
                     </motion.span>
+                    
                     {tts.isEnabled && (
                       <motion.span 
                         className={cn(
@@ -461,9 +509,10 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                         animate={{ opacity: tts.isSpeaking ? [0.5, 1, 0.5] : 1 }} 
                         transition={{ duration: 1, repeat: tts.isSpeaking ? Infinity : 0 }}
                       >
-                        {tts.isSpeaking ? 'speaking..' : 'idle'}
+                        {tts.isSpeaking ? '🔊' : '🔇'}
                       </motion.span>
                     )}
+                    
                     {pendingAction && (
                       <motion.span 
                         className="text-intent-primary"
@@ -471,11 +520,6 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                         transition={{ duration: 1.5, repeat: Infinity }}
                       >
                         PENDING...
-                      </motion.span>
-                    )}
-                    {layout.width && (
-                      <motion.span animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 2.2, repeat: Infinity, delay: 1.5 }}>
-                        SIZE:{layout.width.toUpperCase()}
                       </motion.span>
                     )}
                   </div>

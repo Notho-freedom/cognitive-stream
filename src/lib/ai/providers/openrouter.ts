@@ -10,12 +10,13 @@ const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 
 // Modèles gratuits par ordre de priorité
 const OPENROUTER_MODELS = [
-  'liquid/lfm-2.5-1.2b-thinking:free',
-  'liquid/lfm-2.5-1.2b:free',
-  'google/gemini-2.0-flash-exp:free',
-  'meta-llama/llama-3.2-3b-instruct:free',
-  'mistralai/mistral-7b-instruct:free',
-  'microsoft/phi-3-mini-128k-instruct:free',
+  //'liquid/lfm-2.5-1.2b-thinking:free',
+  //'meta-llama/llama-3.2-3b-instruct:free',
+  'arcee-ai/trinity-large-preview:free',
+  'upstage/solar-pro-3:free',
+  'nvidia/nemotron-3-nano-30b-a3b:free',
+  'qwen/qwen3-next-80b-a3b-instruct:free',
+  'qwen/qwen3-coder:free'
 ] as const;
 
 export async function isOpenRouterAvailable(): Promise<boolean> {
