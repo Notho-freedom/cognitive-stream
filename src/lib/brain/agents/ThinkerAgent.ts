@@ -38,6 +38,11 @@ interface ThinkResult {
   rawResponse: string;
   provider: string;
   model: string;
+  
+  // Retry flags for auto-correction
+  needsRetry?: boolean;
+  retryReason?: 'no_json_found' | 'json_parse_error' | 'missing_schema';
+  rawError?: string;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -218,10 +223,28 @@ export class ThinkerAgent implements Agent<ThinkParams, ThinkResult> {
       // Extraire le JSON de la réponse
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        return { thought: this.createThought(content, 'observation') };
+        // Pas de JSON trouvé → flag pour retry
+        console.warn('[ThinkerAgent] No JSON found in response');
+        return { 
+          thought: this.createThought(content.slice(0, 200), 'observation'),
+          needsRetry: true,
+          retryReason: 'no_json_found',
+        };
       }
 
-      const parsed = JSON.parse(jsonMatch[0]);
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonMatch[0]);
+      } catch (parseError) {
+        // JSON invalide → flag pour retry
+        console.warn('[ThinkerAgent] JSON parse error:', parseError);
+        return {
+          thought: this.createThought(content.slice(0, 200), 'observation'),
+          needsRetry: true,
+          retryReason: 'json_parse_error',
+          rawError: parseError instanceof Error ? parseError.message : 'Unknown parse error',
+        };
+      }
 
       const result: Partial<ThinkResult> = {};
 
@@ -238,6 +261,11 @@ export class ThinkerAgent implements Agent<ThinkParams, ThinkResult> {
       // Extraire le schéma UI
       if (parsed.response?.schema) {
         result.uiSchema = parsed.response.schema;
+      } else if (!parsed.response && mode === 'respond') {
+        // Pas de schéma dans la réponse → flag pour retry si mode respond
+        console.warn('[ThinkerAgent] No schema in response');
+        result.needsRetry = true;
+        result.retryReason = 'missing_schema';
       }
 
       // Extraire les actions immédiates
@@ -251,9 +279,15 @@ export class ThinkerAgent implements Agent<ThinkParams, ThinkResult> {
       }
 
       return result;
-    } catch {
-      // Si parsing échoue, créer une pensée simple
-      return { thought: this.createThought(content, 'observation') };
+    } catch (error) {
+      // Erreur inattendue → créer une pensée et flag retry
+      console.error('[ThinkerAgent] Unexpected parse error:', error);
+      return { 
+        thought: this.createThought(content.slice(0, 200), 'observation'),
+        needsRetry: true,
+        retryReason: 'json_parse_error',
+        rawError: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
   }
 

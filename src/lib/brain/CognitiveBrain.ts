@@ -33,6 +33,14 @@ import {
 } from './agents';
 import { parseSystemActions, executeSystemAction, formatActionResultForAI } from '@/lib/systemActions';
 import { isElectronEnvironment } from '@/lib/ai';
+import {
+  createLoadingSchema,
+  createErrorSchema,
+  createTextFallbackSchema,
+  createSystemExecutionSchema,
+  buildCorrectionPrompt,
+  ASYNC_CONFIG,
+} from './schemaFallbacks';
 
 // ──────────────────────────────────────────────────────────────
 // DEFAULT CONFIGURATION
@@ -84,6 +92,10 @@ export class CognitiveBrain {
   // Provider tracking
   private currentProvider = '';
   private currentModel = '';
+  
+  // Retry tracking for auto-correction
+  private retryCount = 0;
+  private lastRawResponse = '';
 
   constructor(
     config: Partial<BrainConfig> = {},
@@ -433,6 +445,12 @@ export class CognitiveBrain {
 
     if (!result.success) {
       console.error(`[CognitiveBrain] Task failed: ${task.id}`, result.error);
+      // Afficher un schéma d'erreur
+      this.callbacks.onUISchema?.(createErrorSchema(
+        result.error || 'Une erreur est survenue',
+        true,
+        { provider: this.currentProvider }
+      ));
       return;
     }
 
@@ -446,12 +464,27 @@ export class CognitiveBrain {
           rawResponse: string;
           provider: string;
           model: string;
+          needsRetry?: boolean;
+          retryReason?: string;
+          rawError?: string;
         };
+
+        // Sauvegarder la réponse brute pour retry potentiel
+        this.lastRawResponse = thinkResult.rawResponse;
 
         // Enregistrer la pensée
         if (thinkResult.thought) {
           this.callbacks.onThought?.(thinkResult.thought);
         }
+
+        // Vérifier si un retry est nécessaire
+        if (thinkResult.needsRetry) {
+          await this.handleRetry(thinkResult, correlationId);
+          return;
+        }
+
+        // Reset retry count on success
+        this.retryCount = 0;
 
         // Ajouter la réponse au contexte
         this.addToContext({ role: 'assistant', content: thinkResult.rawResponse });
@@ -465,6 +498,14 @@ export class CognitiveBrain {
           // Pas de commandes système, afficher le schéma directement
           if (thinkResult.uiSchema) {
             this.callbacks.onUISchema?.(thinkResult.uiSchema);
+          } else {
+            // Pas de schéma → créer un fallback
+            console.warn('[CognitiveBrain] No UI schema in response, creating fallback');
+            const fallbackSchema = createTextFallbackSchema(
+              thinkResult.rawResponse.slice(0, 500),
+              thinkResult.thought?.content
+            );
+            this.callbacks.onUISchema?.(fallbackSchema);
           }
         }
 
@@ -514,6 +555,65 @@ export class CognitiveBrain {
   }
 
   // ──────────────────────────────────────────────────────────────
+  // RETRY HANDLING - Auto-correction
+  // ──────────────────────────────────────────────────────────────
+
+  private async handleRetry(
+    thinkResult: { retryReason?: string; rawResponse: string; rawError?: string },
+    correlationId: string
+  ): Promise<void> {
+    if (this.retryCount >= ASYNC_CONFIG.maxRetries) {
+      // Max retries atteint → afficher erreur finale
+      console.error('[CognitiveBrain] Max retries reached');
+      this.callbacks.onUISchema?.(createErrorSchema(
+        'Impossible de traiter la réponse après plusieurs tentatives',
+        false,
+        {
+          attemptNumber: this.retryCount,
+          maxAttempts: ASYNC_CONFIG.maxRetries,
+          technicalMessage: thinkResult.rawError,
+        }
+      ));
+      this.retryCount = 0;
+      return;
+    }
+
+    this.retryCount++;
+    console.log(`[CognitiveBrain] Retry attempt ${this.retryCount}/${ASYNC_CONFIG.maxRetries}`);
+
+    // Afficher schéma de transition pendant le retry
+    this.callbacks.onUISchema?.(createLoadingSchema(
+      `Correction en cours (tentative ${this.retryCount}/${ASYNC_CONFIG.maxRetries})`,
+      { count: 1, current: 'Auto-correction du format' }
+    ));
+
+    // Attendre un peu avant de retry
+    await new Promise(resolve => setTimeout(resolve, ASYNC_CONFIG.retryDelayMs));
+
+    // Créer le prompt de correction
+    const correctionPrompt = buildCorrectionPrompt(
+      thinkResult.rawResponse,
+      thinkResult.retryReason || 'unknown_error'
+    );
+
+    // Ajouter au contexte et relancer
+    this.addToContext({ role: 'user', content: correctionPrompt });
+
+    const retryTask = createTask(
+      'thinker',
+      'respond',
+      {
+        messages: this.workingMemory.contextWindow,
+        mode: 'respond' as const,
+      },
+      correlationId,
+      { priority: 1 }
+    );
+
+    await this.executeTask(retryTask, correlationId);
+  }
+
+  // ──────────────────────────────────────────────────────────────
   // SYSTEM ACTIONS - Exécution commandes système
   // ──────────────────────────────────────────────────────────────
 
@@ -523,11 +623,23 @@ export class CognitiveBrain {
     originalResponse: string
   ): Promise<void> {
     this.setMode('executing');
+    
+    // Afficher IMMÉDIATEMENT un schéma de transition
+    const commandStrings = actions.map(a => {
+      const payload = a.payload;
+      return `${a.type}: ${payload.command || payload.path || ''}`;
+    });
+    this.callbacks.onUISchema?.(createSystemExecutionSchema(commandStrings, 0));
     this.callbacks.onNotification?.('Exécution des commandes système...', 'medium');
 
     const results: Array<{ action: string; success: boolean; output: string; data?: unknown }> = [];
 
-    for (const action of actions) {
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      
+      // Mettre à jour le schéma de progression
+      this.callbacks.onUISchema?.(createSystemExecutionSchema(commandStrings, i));
+      
       const result = await executeSystemAction(action);
       const formatted = formatActionResultForAI(result);
       

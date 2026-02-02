@@ -15,6 +15,7 @@ import type {
 } from '@/lib/brain';
 import type { CognitiveUISchema, ActionPayload } from '@/components/cognitive/dynamic/types';
 import type { CognitiveNotification, NotificationPriority } from '@/components/cognitive/NotificationQueue';
+import { isTransitionSchema } from '@/lib/brain/schemaFallbacks';
 
 // ──────────────────────────────────────────────────────────────
 // TYPES
@@ -25,6 +26,7 @@ type NotificationPushFn = (notification: Omit<CognitiveNotification, 'id' | 'tim
 interface CognitiveBrainState {
   messages: Message[];
   schema: CognitiveUISchema | null;
+  lastValidSchema: CognitiveUISchema | null; // Keep last valid schema for fallback
   thought: string | null;
   isLoading: boolean;
   isStreaming: boolean;
@@ -54,6 +56,7 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
   const [state, setState] = useState<CognitiveBrainState>({
     messages: [],
     schema: null,
+    lastValidSchema: null,
     thought: null,
     isLoading: false,
     isStreaming: false,
@@ -143,13 +146,21 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     
     onUISchema: (schema: unknown) => {
       const typedSchema = schema as CognitiveUISchema;
-      setState(prev => ({
-        ...prev,
-        schema: typedSchema,
-        isLoading: false,
-        isStreaming: false,
-        error: null,
-      }));
+      
+      setState(prev => {
+        // Sauvegarder comme lastValidSchema si ce n'est pas un schéma transitionnel
+        const isTransition = isTransitionSchema(typedSchema);
+        const newLastValid = isTransition ? prev.lastValidSchema : typedSchema;
+        
+        return {
+          ...prev,
+          schema: typedSchema,
+          lastValidSchema: newLastValid,
+          isLoading: isTransition, // Keep loading state if transitional
+          isStreaming: false,
+          error: null,
+        };
+      });
       
       // Update provider info from brain
       if (brainRef.current) {
@@ -352,6 +363,7 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     setState({
       messages: [],
       schema: null,
+      lastValidSchema: null,
       thought: null,
       isLoading: false,
       isStreaming: false,
@@ -375,6 +387,7 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     // State
     messages: state.messages,
     schema: state.schema,
+    lastValidSchema: state.lastValidSchema,
     thought: state.thought,
     isLoading: state.isLoading,
     isStreaming: state.isStreaming,
