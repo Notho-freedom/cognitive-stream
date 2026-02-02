@@ -55,6 +55,44 @@ RÈGLES CRITIQUES:
 • TOUJOURS valider que le JSON est bien formé
 
 ═══════════════════════════════════════════════════════════════════════════════
+🚨 RÈGLES CRITIQUES - EXÉCUTION SYSTÈME
+═══════════════════════════════════════════════════════════════════════════════
+
+⚠️ INTERDIT - Ne JAMAIS inclure de blocs système dans ta réponse JSON :
+
+MAUVAIS ❌ :
+{
+  "response": { ... }
+}
+\`\`\`system:exec
+ls -la
+\`\`\`
+
+BON ✅ :
+{
+  "blocks": [
+    {
+      "type": "input",
+      "id": "cmd",
+      "label": "Commande à exécuter",
+      "placeholder": "ls -la"
+    },
+    {
+      "type": "button",
+      "label": "Exécuter",
+      "actionId": "execute-system-command",
+      "variant": "primary",
+      "icon": "terminal"
+    }
+  ]
+}
+
+RÈGLE D'OR :
+• Les commandes système doivent TOUJOURS passer par un formulaire
+• L'utilisateur doit TOUJOURS confirmer explicitement
+• JAMAIS d'exécution automatique cachée
+
+═══════════════════════════════════════════════════════════════════════════════
 📐 CONTRÔLE INTELLIGENT DES DIMENSIONS (LAYOUT)
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -841,7 +879,7 @@ EXEMPLE 5 - Onglets avec accordéon:
     ? generateElectronSection(capabilities)
     : generateWebSection();
 
-  return basePrompt + environmentSection;
+  return basePrompt + environmentSection + SYSTEM_RESULTS_HANDLING;
 }
 
 /**
@@ -1098,5 +1136,68 @@ EXEMPLE - Réponse en mode web:
   }
 }`;
 }
+
+
+// À la fin du fichier, juste avant l'export
+
+const SYSTEM_RESULTS_HANDLING = `
+
+═══════════════════════════════════════════════════════════════════════════════
+⚙️ GESTION DES RÉSULTATS SYSTÈME
+═══════════════════════════════════════════════════════════════════════════════
+
+Quand tu reçois des résultats de commandes système :
+
+1. ✅ TU DOIS TOUJOURS retourner un schéma UI JSON valide
+2. ✅ PAS d'explications en texte brut - UNIQUEMENT du JSON
+3. ✅ Utilise des composants appropriés :
+   - TABLE pour listes de fichiers/processus
+   - CARD pour regrouper par catégorie
+   - STATUS pour indicateurs de succès/échec
+   - CODE pour afficher du contenu brut
+   - ALERT pour erreurs/warnings
+
+EXEMPLE - Résultats de "ls" :
+{
+  "thought": "Affichage de 94 éléments du répertoire",
+  "response": {
+    "type": "schema",
+    "schema": {
+      "metadata": { "title": "Contenu du répertoire ~" },
+      "layout": { "width": "lg", "maxHeight": "xl", "scrollable": true },
+      "blocks": [
+        {
+          "type": "grid",
+          "columns": 3,
+          "gap": "md",
+          "children": [
+            {
+              "type": "card",
+              "title": "Dossiers",
+              "children": [
+                { "type": "text", "content": "67 dossiers", "variant": "label" },
+                { "type": "list", "items": ["AccelWorld", "AppData", "..."], "variant": "bullet" }
+              ]
+            },
+            {
+              "type": "card", 
+              "title": "Fichiers",
+              "children": [
+                { "type": "text", "content": "27 fichiers", "variant": "label" },
+                { "type": "list", "items": ["minio.exe", "package.json", "..."], "variant": "bullet" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+⚠️ JAMAIS de texte en dehors du JSON !
+⚠️ TOUJOURS inclure un schéma UI même pour des erreurs !
+
+`;
+
 
 export default generateUnifiedSystemPrompt;
