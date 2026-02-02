@@ -19,16 +19,19 @@ export type CognitiveEventType =
   | 'intent.message'           // Message utilisateur
   | 'intent.action'            // Action UI déclenchée
   | 'intent.search'            // Recherche demandée
+  | 'intent.retry'             // Retry demandé par l'utilisateur
   | 'task.started'             // Tâche démarrée
   | 'task.completed'           // Tâche terminée
   | 'task.failed'              // Tâche échouée
   | 'task.progress'            // Progression de tâche
   | 'system.result'            // Résultat commande système
   | 'system.error'             // Erreur système
+  | 'system.executing'         // Commandes en cours d'exécution
   | 'thought.generated'        // Pensée générée par LLM
   | 'plan.created'             // Plan d'action créé
   | 'decision.made'            // Décision prise
   | 'ui.render'                // Schéma UI à afficher
+  | 'ui.transition'            // Schéma transitionnel (loading)
   | 'notification.push'        // Notification à afficher
   | 'memory.update';           // Mise à jour mémoire
 
