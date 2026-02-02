@@ -85,14 +85,18 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
       block => block.type === 'text' && typeof block.content === 'string'
     );
 
-    const textToSpeak = firstTextBlock.type === 'text' && firstTextBlock?.content || thought;
+    // FIXED: Safe access to firstTextBlock properties
+    const textToSpeak = 
+      (firstTextBlock && firstTextBlock.type === 'text' && typeof firstTextBlock.content === 'string') 
+        ? firstTextBlock.content 
+        : thought;
 
     console.log(
       '[CognitiveInterface] Speaking:',
       textToSpeak.slice(0, 80)
     );
 
-    tts.speakThought(thought);
+    tts.speakThought(textToSpeak);
   }, [thought, isStreaming, tts.isEnabled, schema]);
 
 

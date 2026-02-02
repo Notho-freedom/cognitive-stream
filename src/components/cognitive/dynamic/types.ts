@@ -6,7 +6,7 @@ export type ListVariant = 'bullet' | 'numbered' | 'tags';
 export type StatusState = 'loading' | 'success' | 'error' | 'warning' | 'info';
 export type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'info';
 export type CardVariant = 'default' | 'framed' | 'ghost';
-export type StackDirection = 'vertical' | 'horizontal';
+export type StackDirection = 'vertical' | 'horizontal' | 'row'; // 'row' alias for 'horizontal'
 export type GapSize = 'none' | 'sm' | 'md' | 'lg' | 'xl';
 // Layout control types
 export type LayoutWidth = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'full';
@@ -76,6 +76,7 @@ export interface StackBlock extends BaseBlock {
   type: 'stack';
   children: CognitiveBlock[];
   direction?: StackDirection;
+  spacing?: number; // Spacing as number (Tailwind gap units)
   gap?: GapSize;
   align?: 'start' | 'center' | 'end' | 'stretch';
 }
@@ -282,6 +283,10 @@ export interface CognitiveUISchema {
     title?: string;
     description?: string;
     timestamp?: string;
+    // Transition/fallback flags for async handling
+    isTransition?: boolean;
+    isError?: boolean;
+    isFallback?: boolean;
   };
   layout?: {
     width?: LayoutWidth;
