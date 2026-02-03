@@ -6,6 +6,9 @@
 // Core Brain
 export { CognitiveBrain, createCognitiveBrain } from './CognitiveBrain';
 
+// Plan Executor
+export { PlanExecutor, createPlanExecutor } from './PlanExecutor';
+
 // Types
 export type {
   CognitiveEvent,
@@ -36,3 +39,17 @@ export { generateId, createEvent, createTask } from './types';
 
 // Agents
 export * from './agents';
+
+// Schema Fallbacks
+export {
+  createLoadingSchema,
+  createErrorSchema,
+  createTextFallbackSchema,
+  createSystemExecutionSchema,
+  createPlanPreviewSchema,
+  createPlanProgressSchema,
+  createPlanCompletionSchema,
+  isTransitionSchema,
+  isErrorSchema,
+  ASYNC_CONFIG,
+} from './schemaFallbacks';

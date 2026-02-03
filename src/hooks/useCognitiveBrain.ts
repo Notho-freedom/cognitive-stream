@@ -43,6 +43,10 @@ interface CognitiveBrainState {
   aiProvider: string | null;
   aiModel: string | null;
   isLocalFallback: boolean;
+  
+  // Plan state
+  isPlanning: boolean;
+  isPlanExecuting: boolean;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -69,6 +73,8 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     aiProvider: null,
     aiModel: null,
     isLocalFallback: false,
+    isPlanning: false,
+    isPlanExecuting: false,
   });
 
   // Notification ref for callbacks
@@ -105,8 +111,10 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
       setState(prev => ({
         ...prev,
         mentalState,
-        isLoading: mentalState.mode === 'thinking' || mentalState.mode === 'executing',
+        isLoading: mentalState.mode === 'thinking' || mentalState.mode === 'executing' || mentalState.mode === 'planning',
         isStreaming: mentalState.mode === 'thinking',
+        isPlanning: mentalState.mode === 'planning',
+        isPlanExecuting: mentalState.mode === 'executing',
       }));
     },
     
@@ -376,6 +384,8 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
       aiProvider: null,
       aiModel: null,
       isLocalFallback: false,
+      isPlanning: false,
+      isPlanExecuting: false,
     });
   }, []);
 
@@ -404,6 +414,10 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     aiProvider: state.aiProvider,
     aiModel: state.aiModel,
     isLocalFallback: state.isLocalFallback,
+    
+    // Plan state
+    isPlanning: state.isPlanning,
+    isPlanExecuting: state.isPlanExecuting,
     
     // Actions
     sendMessage,

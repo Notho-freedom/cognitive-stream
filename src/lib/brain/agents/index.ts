@@ -8,3 +8,6 @@ export { FileSystemAgent, createFileSystemAgent } from './FileSystemAgent';
 export { SystemAgent, createSystemAgent } from './SystemAgent';
 export { UIBuilderAgent, createUIBuilderAgent } from './UIBuilderAgent';
 export { NotificationAgent, createNotificationAgent } from './NotificationAgent';
+export { PlannerAgent, createPlannerAgent, analyzeTaskComplexity, PLAN_CONFIG } from './PlannerAgent';
+export type { PlannerParams, PlannerResult } from './PlannerAgent';
+export * from './plannerTypes';
