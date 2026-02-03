@@ -30,7 +30,12 @@ import {
   createUIBuilderAgent,
   createNotificationAgent,
   NotificationAgent,
+  createPlannerAgent,
+  analyzeTaskComplexity,
+  PLAN_CONFIG,
 } from './agents';
+import type { ExecutionPlan, PlanStep, PlanStats } from './agents/plannerTypes';
+import { PlanExecutor, createPlanExecutor } from './PlanExecutor';
 import { parseSystemActions, executeSystemAction, formatActionResultForAI } from '@/lib/systemActions';
 import { isElectronEnvironment } from '@/lib/ai';
 import {
@@ -38,6 +43,9 @@ import {
   createErrorSchema,
   createTextFallbackSchema,
   createSystemExecutionSchema,
+  createPlanPreviewSchema,
+  createPlanProgressSchema,
+  createPlanCompletionSchema,
   buildCorrectionPrompt,
   ASYNC_CONFIG,
 } from './schemaFallbacks';
@@ -96,6 +104,10 @@ export class CognitiveBrain {
   // Retry tracking for auto-correction
   private retryCount = 0;
   private lastRawResponse = '';
+  
+  // Plan execution
+  private currentPlan: ExecutionPlan | null = null;
+  private planExecutor: PlanExecutor | null = null;
 
   constructor(
     config: Partial<BrainConfig> = {},
@@ -304,30 +316,38 @@ export class CognitiveBrain {
         // Ajouter le message à la mémoire
         this.addToContext({ role: 'user', content });
         
-        // Créer un goal pour cette interaction
-        const goal = this.createGoal(`Répondre à: ${content.slice(0, 50)}...`);
-        this.workingMemory.currentGoal = goal;
+        // Analyser la complexité de la tâche
+        const complexity = analyzeTaskComplexity(content);
         
-        // Créer une tâche de réflexion
-        const thinkTask = createTask(
-          'thinker',
-          'respond',
-          {
-            messages: this.workingMemory.contextWindow,
-            context: {
-              activeGoal: goal.description,
-              environmentInfo: {
-                isElectron: isElectronEnvironment(),
-                systemAvailable: this.state.environmentContext.systemAvailable,
+        if (complexity.isComplex && this.config.thinkingConfig.enableAutoPlanning) {
+          // Tâche complexe → activer le mode planification
+          console.log(`[CognitiveBrain] Complex task detected (score: ${complexity.score})`);
+          await this.handleComplexTask(content, event.id);
+        } else {
+          // Tâche simple → traitement direct
+          const goal = this.createGoal(`Répondre à: ${content.slice(0, 50)}...`);
+          this.workingMemory.currentGoal = goal;
+          
+          const thinkTask = createTask(
+            'thinker',
+            'respond',
+            {
+              messages: this.workingMemory.contextWindow,
+              context: {
+                activeGoal: goal.description,
+                environmentInfo: {
+                  isElectron: isElectronEnvironment(),
+                  systemAvailable: this.state.environmentContext.systemAvailable,
+                },
               },
+              mode: 'respond' as const,
             },
-            mode: 'respond' as const,
-          },
-          event.id,
-          { priority: 1 }
-        );
-        
-        tasks.push(thinkTask);
+            event.id,
+            { priority: 1 }
+          );
+          
+          tasks.push(thinkTask);
+        }
         break;
       }
 
@@ -611,6 +631,204 @@ export class CognitiveBrain {
     );
 
     await this.executeTask(retryTask, correlationId);
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // COMPLEX TASK HANDLING - Planification multi-étapes
+  // ──────────────────────────────────────────────────────────────
+
+  private async handleComplexTask(content: string, correlationId: string): Promise<void> {
+    this.setMode('planning');
+    
+    // Afficher un schéma de transition pendant la planification
+    this.callbacks.onUISchema?.(createLoadingSchema(
+      'Analyse de la demande...',
+      { count: 1, current: 'Génération du plan d\'exécution' }
+    ));
+    
+    // Créer un goal pour cette tâche complexe
+    const goal = this.createGoal(`Plan: ${content.slice(0, 50)}...`);
+    this.workingMemory.currentGoal = goal;
+    
+    // Générer le plan via PlannerAgent
+    const plannerAgent = createPlannerAgent();
+    const planParams = {
+      objective: content,
+      context: {
+        systemAvailable: this.state.environmentContext.systemAvailable,
+      },
+    };
+    
+    // Exécuter directement sans passer par createTask pour éviter les problèmes de typage
+    const startTime = Date.now();
+    let planResult: AgentResult<{ plan: ExecutionPlan; isComplex: boolean; estimatedDuration: number }>;
+    
+    try {
+      const complexity = analyzeTaskComplexity(content);
+      
+      if (!complexity.isComplex) {
+        // Pas vraiment complexe - fallback direct
+        const thinkTask = createTask(
+          'thinker',
+          'respond',
+          {
+            messages: this.workingMemory.contextWindow,
+            mode: 'respond' as const,
+          },
+          correlationId,
+          { priority: 1 }
+        );
+        await this.executeTask(thinkTask, correlationId);
+        return;
+      }
+      
+      // Créer le plan via l'IA
+      const mockTask: CognitiveTask = {
+        id: generateId('task'),
+        agent: 'thinker' as AgentType,
+        action: 'plan',
+        params: planParams,
+        status: 'running' as const,
+        priority: 1,
+        createdAt: Date.now(),
+        correlationId,
+        retryCount: 0,
+        maxRetries: 2,
+      };
+      
+      planResult = await plannerAgent.execute(mockTask);
+    } catch (error) {
+      console.error('[CognitiveBrain] Planning error:', error);
+      const thinkTask = createTask(
+        'thinker',
+        'respond',
+        {
+          messages: this.workingMemory.contextWindow,
+          mode: 'respond' as const,
+        },
+        correlationId,
+        { priority: 1 }
+      );
+      await this.executeTask(thinkTask, correlationId);
+      return;
+    }
+    
+    if (!planResult.success || !planResult.data) {
+      // Fallback sur traitement simple si planification échoue
+      console.warn('[CognitiveBrain] Planning failed, falling back to simple mode');
+      const thinkTask = createTask(
+        'thinker',
+        'respond',
+        {
+          messages: this.workingMemory.contextWindow,
+          mode: 'respond' as const,
+        },
+        correlationId,
+        { priority: 1 }
+      );
+      await this.executeTask(thinkTask, correlationId);
+      return;
+    }
+    
+    const { plan, isComplex } = planResult.data;
+    this.currentPlan = plan;
+    
+    if (!isComplex) {
+      // Finalement pas si complexe → traitement direct
+      const thinkTask = createTask(
+        'thinker',
+        'respond',
+        {
+          messages: this.workingMemory.contextWindow,
+          mode: 'respond' as const,
+        },
+        correlationId,
+        { priority: 1 }
+      );
+      await this.executeTask(thinkTask, correlationId);
+      return;
+    }
+    
+    // Afficher le plan à l'utilisateur
+    this.callbacks.onUISchema?.(createPlanPreviewSchema(plan));
+    this.callbacks.onNotification?.(`Plan généré: ${plan.steps.length} étapes`, 'medium');
+    
+    // Exécuter le plan
+    await this.executePlan(plan, correlationId);
+  }
+
+  private async executePlan(plan: ExecutionPlan, correlationId: string): Promise<void> {
+    this.setMode('executing');
+    
+    // Créer l'exécuteur de plan avec callbacks
+    this.planExecutor = createPlanExecutor(plan, this.agents, {
+      onPlanEvent: (event) => {
+        console.log(`[CognitiveBrain] Plan event: ${event.type}`);
+      },
+      
+      onStepUpdate: (step) => {
+        this.callbacks.onUISchema?.(createPlanProgressSchema(plan, step));
+      },
+      
+      onProgressUpdate: (progress, currentStep) => {
+        plan.progress = progress;
+        if (currentStep) {
+          this.callbacks.onUISchema?.(createPlanProgressSchema(plan, currentStep));
+        }
+      },
+      
+      onPhaseComplete: (result) => {
+        console.log(`[CognitiveBrain] Phase ${result.phaseIndex} complete, success: ${result.allSuccessful}`);
+        if (!result.allSuccessful) {
+          this.callbacks.onNotification?.(
+            `Phase ${result.phaseIndex + 1}: ${result.stepResults.filter(r => !r.success).length} erreur(s)`,
+            'high'
+          );
+        }
+      },
+      
+      onPlanComplete: (completedPlan, stats) => {
+        this.callbacks.onUISchema?.(createPlanCompletionSchema(completedPlan, stats));
+        this.callbacks.onNotification?.(
+          stats.failedSteps === 0 
+            ? `Plan exécuté avec succès (${stats.completedSteps} étapes)`
+            : `Plan terminé avec ${stats.failedSteps} erreur(s)`,
+          stats.failedSteps === 0 ? 'medium' : 'high'
+        );
+        
+        // Enregistrer dans l'historique
+        this.addToContext({
+          role: 'assistant',
+          content: `Plan "${completedPlan.objective}" exécuté. ${stats.completedSteps}/${stats.totalSteps} étapes réussies.`,
+        });
+        
+        // Marquer le goal comme complété
+        if (this.workingMemory.currentGoal) {
+          this.workingMemory.currentGoal.status = stats.failedSteps === 0 ? 'completed' : 'failed';
+          this.workingMemory.currentGoal.completedAt = Date.now();
+        }
+      },
+      
+      onError: (error, step) => {
+        console.error(`[CognitiveBrain] Plan error: ${error}`, step);
+        this.callbacks.onError?.(error);
+      },
+    });
+    
+    try {
+      await this.planExecutor.execute();
+    } catch (error) {
+      console.error('[CognitiveBrain] Plan execution failed:', error);
+      this.callbacks.onUISchema?.(createErrorSchema(
+        error instanceof Error ? error.message : 'Erreur d\'exécution du plan',
+        true,
+        { provider: this.currentProvider }
+      ));
+    } finally {
+      this.currentPlan = null;
+      this.planExecutor = null;
+      this.setMode('idle');
+    }
   }
 
   // ──────────────────────────────────────────────────────────────

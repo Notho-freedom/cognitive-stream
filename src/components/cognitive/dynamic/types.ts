@@ -287,6 +287,7 @@ export interface CognitiveUISchema {
     isTransition?: boolean;
     isError?: boolean;
     isFallback?: boolean;
+    isPlan?: boolean; // Plan execution schemas
   };
   layout?: {
     width?: LayoutWidth;

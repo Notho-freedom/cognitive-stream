@@ -10,8 +10,8 @@ const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 
 // Modèles par ordre de priorité (plus légers = moins de rate-limit)
 const GROQ_MODELS = [
-
-
+  "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant",
 ] as const;
 
 export async function isGroqAvailable(): Promise<boolean> {

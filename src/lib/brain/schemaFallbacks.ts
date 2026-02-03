@@ -4,6 +4,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import type { CognitiveUISchema } from '@/components/cognitive/dynamic/types';
+import type { ExecutionPlan, PlanStep, PlanStats } from './agents/plannerTypes';
 
 // ──────────────────────────────────────────────────────────────
 // CONFIGURATION
@@ -322,6 +323,255 @@ export function createSystemExecutionSchema(
 }
 
 // ──────────────────────────────────────────────────────────────
+// PLAN PREVIEW SCHEMA
+// Affiche le plan avant exécution
+// ──────────────────────────────────────────────────────────────
+
+export function createPlanPreviewSchema(plan: ExecutionPlan): CognitiveUISchema {
+  const blocks: CognitiveUISchema['blocks'] = [
+    {
+      type: 'text',
+      content: `🎯 ${plan.objective}`,
+      variant: 'heading',
+    },
+    {
+      type: 'divider',
+    },
+    {
+      type: 'text',
+      content: `${plan.steps.length} étapes • ${plan.totalPhases} phases`,
+      variant: 'caption',
+    },
+  ];
+
+  // Afficher les étapes groupées par phase
+  for (let phaseIdx = 0; phaseIdx < plan.parallelGroups.length; phaseIdx++) {
+    const phaseStepIds = plan.parallelGroups[phaseIdx];
+    const phaseSteps = plan.steps.filter(s => phaseStepIds.includes(s.id));
+    
+    const isParallel = phaseSteps.length > 1;
+    const phaseLabel = isParallel 
+      ? `Phase ${phaseIdx + 1} (parallèle)`
+      : `Phase ${phaseIdx + 1}`;
+
+    blocks.push({
+      type: 'text',
+      content: phaseLabel,
+      variant: 'label',
+    });
+
+    // Liste des étapes de cette phase
+    const stepItems = phaseSteps.map(step => {
+      const agentIcon = getAgentIcon(step.agent);
+      return `${agentIcon} ${step.description || step.action}`;
+    });
+
+    blocks.push({
+      type: 'list',
+      items: stepItems,
+      variant: 'numbered',
+    });
+  }
+
+  blocks.push({
+    type: 'divider',
+  });
+
+  blocks.push({
+    type: 'stack',
+    direction: 'horizontal',
+    gap: 'md',
+    children: [
+      {
+        type: 'button',
+        label: 'Exécuter le plan',
+        actionId: 'execute-plan',
+        variant: 'primary',
+      },
+      {
+        type: 'button',
+        label: 'Modifier',
+        actionId: 'modify-plan',
+        variant: 'secondary',
+      },
+    ],
+  });
+
+  return {
+    metadata: {
+      title: 'Plan d\'exécution',
+      isPlan: true,
+    },
+    layout: {
+      width: 'lg',
+    },
+    blocks,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────
+// PLAN PROGRESS SCHEMA
+// Affiche la progression en temps réel
+// ──────────────────────────────────────────────────────────────
+
+export function createPlanProgressSchema(
+  plan: ExecutionPlan,
+  currentStep?: PlanStep
+): CognitiveUISchema {
+  const blocks: CognitiveUISchema['blocks'] = [
+    {
+      type: 'text',
+      content: `📋 ${plan.objective}`,
+      variant: 'heading',
+    },
+    {
+      type: 'progress',
+      value: plan.progress,
+      max: 100,
+      label: `Phase ${plan.currentPhase + 1}/${plan.totalPhases}`,
+      showValue: true,
+    },
+  ];
+
+  // Étape en cours
+  if (currentStep) {
+    blocks.push({
+      type: 'status',
+      state: 'loading',
+      message: `${getAgentIcon(currentStep.agent)} ${currentStep.description || currentStep.action}`,
+    });
+  }
+
+  // Liste de toutes les étapes avec statut
+  const stepStatusList = plan.steps.map(step => {
+    const icon = getStepStatusIcon(step.status);
+    const text = step.description || step.action;
+    return `${icon} ${text}`;
+  });
+
+  blocks.push({
+    type: 'accordion',
+    items: [
+      {
+        id: 'step-details',
+        title: `Détails (${plan.steps.filter(s => s.status === 'completed').length}/${plan.steps.length})`,
+        children: [
+          {
+            type: 'list',
+            items: stepStatusList,
+            variant: 'bullet',
+          },
+        ],
+      },
+    ],
+  });
+
+  return {
+    metadata: {
+      title: 'Exécution en cours',
+      isTransition: true,
+      isPlan: true,
+    },
+    layout: {
+      width: 'md',
+    },
+    blocks,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────
+// PLAN COMPLETION SCHEMA
+// Résumé final après exécution
+// ──────────────────────────────────────────────────────────────
+
+export function createPlanCompletionSchema(
+  plan: ExecutionPlan,
+  stats: PlanStats
+): CognitiveUISchema {
+  const isSuccess = stats.failedSteps === 0;
+  const durationSeconds = Math.round(stats.totalDuration / 1000);
+
+  const blocks: CognitiveUISchema['blocks'] = [
+    {
+      type: 'alert',
+      variant: isSuccess ? 'success' : 'warning',
+      title: isSuccess ? 'Plan exécuté avec succès' : 'Plan terminé avec des erreurs',
+      message: `${stats.completedSteps}/${stats.totalSteps} étapes réussies`,
+    },
+    {
+      type: 'divider',
+    },
+  ];
+
+  // Stats as key-value pairs
+  blocks.push({
+    type: 'keyValue',
+    pairs: [
+      { key: 'Objectif', value: plan.objective },
+      { key: 'Durée totale', value: `${durationSeconds}s` },
+      { key: 'Étapes réussies', value: `${stats.completedSteps}` },
+      { key: 'Étapes échouées', value: `${stats.failedSteps}` },
+      { key: 'Étapes ignorées', value: `${stats.skippedSteps}` },
+    ],
+  });
+
+  // Détails des étapes échouées
+  const failedSteps = plan.steps.filter(s => s.status === 'failed');
+  if (failedSteps.length > 0) {
+    blocks.push({
+      type: 'accordion',
+      items: [
+        {
+          id: 'failed-steps',
+          title: `Erreurs (${failedSteps.length})`,
+          children: failedSteps.map(step => ({
+            type: 'alert' as const,
+            variant: 'error' as const,
+            title: step.description || step.action,
+            message: step.error || 'Erreur inconnue',
+          })),
+        },
+      ],
+    });
+  }
+
+  blocks.push({
+    type: 'divider',
+  });
+
+  blocks.push({
+    type: 'stack',
+    direction: 'horizontal',
+    gap: 'md',
+    children: [
+      {
+        type: 'button',
+        label: 'Nouvelle tâche',
+        actionId: 'new-task',
+        variant: 'primary',
+      },
+      ...(stats.failedSteps > 0 ? [{
+        type: 'button' as const,
+        label: 'Réessayer les échecs',
+        actionId: 'retry-failed',
+        variant: 'secondary' as const,
+      }] : []),
+    ],
+  });
+
+  return {
+    metadata: {
+      title: 'Résultat du plan',
+      isPlan: true,
+    },
+    layout: {
+      width: 'lg',
+    },
+    blocks,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────
 // RETRY PROMPT BUILDER
 // Pour l'auto-correction
 // ──────────────────────────────────────────────────────────────
@@ -362,4 +612,33 @@ IMPORTANT:
 - Utilise uniquement les types de blocs valides: text, button, list, card, etc.
 - N'inclue AUCUN texte avant ou après le JSON
 `;
+}
+
+// ──────────────────────────────────────────────────────────────
+// HELPERS
+// ──────────────────────────────────────────────────────────────
+
+function getAgentIcon(agent: string): string {
+  const icons: Record<string, string> = {
+    thinker: '🧠',
+    filesystem: '📁',
+    system: '⚙️',
+    uiBuilder: '🎨',
+    notification: '🔔',
+    search: '🔍',
+  };
+  return icons[agent] || '▶️';
+}
+
+function getStepStatusIcon(status: string): string {
+  const icons: Record<string, string> = {
+    pending: '○',
+    ready: '◐',
+    running: '⏳',
+    completed: '✅',
+    failed: '❌',
+    skipped: '⏭️',
+    retrying: '🔄',
+  };
+  return icons[status] || '○';
 }
