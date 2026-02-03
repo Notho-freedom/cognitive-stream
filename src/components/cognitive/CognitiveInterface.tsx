@@ -6,7 +6,7 @@ import { ThoughtStream } from './ThoughtStream';
 import { CognitiveRenderer } from './dynamic/CognitiveRenderer';
 import { useCognitiveBrain } from '@/hooks/useCognitiveBrain';
 import { useNotifications } from './NotificationQueue';
-import { useCognitiveTTS } from '@/hooks/useCognitiveTTS';
+import { useCognitiveEdgeTTS } from '@/hooks/useCognitiveEdgeTTS';
 import { cn } from '@/lib/utils';
 
 // Mapping des largeurs contrôlées par l'IA
@@ -71,7 +71,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
   } = useCognitiveBrain(notifyPush);
 
   // === TTS INTEGRATION ===
-  const tts = useCognitiveTTS({
+  const tts = useCognitiveEdgeTTS({
     autoPlay: true,
     maxLength: 500,
     skipIfSpeaking: true,
@@ -89,7 +89,9 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     const textToSpeak = 
       (firstTextBlock && firstTextBlock.type === 'text' && typeof firstTextBlock.content === 'string') 
         ? firstTextBlock.content 
-        : thought;
+        : '';
+
+    if (!textToSpeak) return;
 
     console.log(
       '[CognitiveInterface] Speaking:',
@@ -357,10 +359,10 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
                   <div className="flex items-center gap-3">
                     <StateIndicator mode={getIndicatorMode()} size="sm" />
                     <div className="flex flex-col">
-                      <span className="text-[10px] uppercase tracking-[0.2em] text-intent-primary font-medium">
+                      <span className="text-[10px] uppercase tracking-[0.2em] text-intent-primary font-medium truncate max-w-[50vw]" title={schema?.metadata?.title || getStateLabel()}>
                         {schema?.metadata?.title || getStateLabel()}
                       </span>
-                      <span className="text-[9px] text-text-ghost tracking-wide max-w-[300px] truncate flex items-center gap-2" title={thought || undefined}>
+                      <span className="text-[9px] text-text-ghost tracking-[0.2em] truncate flex-0 items-center gap-2 max-w-[50vw]" title={thought || undefined}>
                         {thought || schema?.metadata?.description || 'COGNITIVE.UI.v1.0'}
                       </span>
                     </div>

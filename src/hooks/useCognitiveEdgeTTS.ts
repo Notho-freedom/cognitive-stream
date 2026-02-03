@@ -34,7 +34,7 @@ const DEFAULT_OPTIONS: CognitiveEdgeTTSOptions = {
   autoPlay: true,
   maxLength: 500,
   skipIfSpeaking: true,
-  autoDetectLanguage: false,
+  autoDetectLanguage: true,
 };
 
 export function useCognitiveEdgeTTS(options: CognitiveEdgeTTSOptions = DEFAULT_OPTIONS) {

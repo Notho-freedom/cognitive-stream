@@ -10,23 +10,7 @@ const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 
 // Modèles par ordre de priorité (plus légers = moins de rate-limit)
 const GROQ_MODELS = [
-  // Heavy reasoning
-  "llama-3.3-70b-versatile",
-  "openai/gpt-oss-120b",
-  "meta-llama/llama-4-maverick-17b-128e-instruct",
-  
-  // Balanced
-  "qwen/qwen3-32b",
-  "groq/compound",
-  "moonshotai/kimi-k2-instruct",
-  "moonshotai/kimi-k2-instruct-0905",
-  "canopylabs/orpheus-v1-english",
 
-  // Fast UI
-  "llama-3.1-8b-instant",
-  "groq/compound-mini",
-  "openai/gpt-oss-20b",
-  "meta-llama/llama-4-scout-17b-16e-instruct",
 
 ] as const;
 
