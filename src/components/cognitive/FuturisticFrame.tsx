@@ -282,7 +282,7 @@ export function FuturisticFrame({
 
       {/* Additional tech decorations - animated dots */}
       <motion.div 
-        className="absolute top-3 right-8 flex gap-1"
+        className="absolute top-1 right-8 flex gap-1"
         animate={{ opacity: [0.2, 0.5, 0.2] }}
         transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
       >
@@ -292,7 +292,7 @@ export function FuturisticFrame({
       </motion.div>
 
       <motion.div 
-        className="absolute bottom-3 left-8 flex gap-1"
+        className="absolute bottom-1 left-8 flex gap-1"
         animate={{ opacity: [0.2, 0.5, 0.2] }}
         transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 1 }}
       >
