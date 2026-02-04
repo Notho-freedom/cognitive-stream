@@ -64,7 +64,7 @@ export const DEFAULT_AUTONOMY_CONFIG: AutonomyConfig = {
   scope: 'web-electron',
   
   timeouts: {
-    stepTimeout: 60000,         // 1 minute par étape
+    stepTimeout: 120000,         // 2 minutes par étape
     totalPlanTimeout: 600000,   // 10 minutes max pour un plan
     pauseOnInactivity: 300000,  // Pause après 5 minutes d'inactivité
   },

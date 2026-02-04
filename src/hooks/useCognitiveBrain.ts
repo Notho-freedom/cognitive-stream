@@ -83,7 +83,7 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     isPlanning: false,
     isPlanExecuting: false,
     // Autonomy
-    isAutonomousMode: false,
+    isAutonomousMode: true,
     autonomyActionCount: 0,
     autonomyLimit: 50,
     autonomyLog: [],

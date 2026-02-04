@@ -177,9 +177,9 @@ export class AutoContinueEngine {
         // Gérer les différents cas d'arrêt
         switch (decision.reason) {
           case 'objective_reached':
-            const summary = this.generateCompletionSummary(plan);
+            { const summary = this.generateCompletionSummary(plan);
             this.callbacks.onObjectiveReached?.(summary);
-            return { success: true, finalPlan: plan, summary };
+            return { success: true, finalPlan: plan, summary }; }
             
           case 'max_actions':
             this.callbacks.onPause?.('Limite d\'actions autonomes atteinte');
