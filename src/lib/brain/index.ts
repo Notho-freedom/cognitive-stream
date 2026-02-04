@@ -5,9 +5,23 @@
 
 // Core Brain
 export { CognitiveBrain, createCognitiveBrain } from './CognitiveBrain';
+export type { ExtendedBrainCallbacks } from './CognitiveBrain';
 
 // Plan Executor
 export { PlanExecutor, createPlanExecutor } from './PlanExecutor';
+
+// Autonomy
+export {
+  DEFAULT_AUTONOMY_CONFIG,
+  AutonomyJournal,
+  AutonomyCounter,
+  globalAutonomyJournal,
+  isDestructiveAction,
+  DESTRUCTIVE_ACTIONS,
+} from './autonomy';
+export type { AutonomyConfig, AutonomyLevel, AutonomyLogEntry } from './autonomy';
+export { AutoContinueEngine } from './autonomy/AutoContinueEngine';
+export type { ContinueDecision, AutoContinueCallbacks } from './autonomy/AutoContinueEngine';
 
 // Types
 export type {
@@ -49,6 +63,7 @@ export {
   createPlanPreviewSchema,
   createPlanProgressSchema,
   createPlanCompletionSchema,
+  createAutonomyJournalSchema,
   isTransitionSchema,
   isErrorSchema,
   ASYNC_CONFIG,

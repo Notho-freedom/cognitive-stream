@@ -36,6 +36,15 @@ import {
 } from './agents';
 import type { ExecutionPlan, PlanStep, PlanStats } from './agents/plannerTypes';
 import { PlanExecutor, createPlanExecutor } from './PlanExecutor';
+import {
+  AutonomyConfig,
+  DEFAULT_AUTONOMY_CONFIG,
+  AutonomyJournal,
+  AutonomyCounter,
+  globalAutonomyJournal,
+  isDestructiveAction,
+} from './autonomy';
+import { AutoContinueEngine } from './autonomy/AutoContinueEngine';
 import { parseSystemActions, executeSystemAction, formatActionResultForAI } from '@/lib/systemActions';
 import { isElectronEnvironment } from '@/lib/ai';
 import {
@@ -70,12 +79,24 @@ const DEFAULT_CONFIG: BrainConfig = {
 };
 
 // ──────────────────────────────────────────────────────────────
+// EXTENDED BRAIN CALLBACKS avec autonomie
+// ──────────────────────────────────────────────────────────────
+
+export interface ExtendedBrainCallbacks extends BrainCallbacks {
+  onAutonomyLog: (entry: { type: string; summary: string; timestamp: number }) => void;
+  onConfirmDestructive: (action: string, description: string) => Promise<boolean>;
+  onAskQuestion: (question: string) => Promise<string>;
+  onAutonomyPause: (reason: string) => void;
+  onAutonomyResume: () => void;
+}
+
+// ──────────────────────────────────────────────────────────────
 // COGNITIVE BRAIN CLASS
 // ──────────────────────────────────────────────────────────────
 
 export class CognitiveBrain {
   private config: BrainConfig;
-  private callbacks: Partial<BrainCallbacks>;
+  private callbacks: Partial<ExtendedBrainCallbacks>;
   
   // État mental
   private state: MentalState;
@@ -108,13 +129,28 @@ export class CognitiveBrain {
   // Plan execution
   private currentPlan: ExecutionPlan | null = null;
   private planExecutor: PlanExecutor | null = null;
+  
+  // ═══════════════════════════════════════════════════════════════
+  // AUTONOMIE - Mode agent autonome jusqu'à l'objectif
+  // ═══════════════════════════════════════════════════════════════
+  private autonomyConfig: AutonomyConfig;
+  private autonomyJournal: AutonomyJournal;
+  private autonomyCounter: AutonomyCounter;
+  private autoContinueEngine: AutoContinueEngine | null = null;
+  private isAutonomousMode = false;
 
   constructor(
     config: Partial<BrainConfig> = {},
-    callbacks: Partial<BrainCallbacks> = {}
+    callbacks: Partial<ExtendedBrainCallbacks> = {},
+    autonomyConfig: Partial<AutonomyConfig> = {}
   ) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.callbacks = callbacks;
+    
+    // Initialiser l'autonomie
+    this.autonomyConfig = { ...DEFAULT_AUTONOMY_CONFIG, ...autonomyConfig };
+    this.autonomyJournal = globalAutonomyJournal;
+    this.autonomyCounter = new AutonomyCounter(this.autonomyConfig);
     
     // Initialiser l'état mental
     this.state = this.createInitialState();
@@ -150,7 +186,7 @@ export class CognitiveBrain {
       ['notification', this.notificationAgent],
     ]);
     
-    console.log('[CognitiveBrain] Initialized');
+    console.log('[CognitiveBrain] Initialized with autonomy level:', this.autonomyConfig.level);
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -180,6 +216,76 @@ export class CognitiveBrain {
   async sendAction(actionId: string, payload: Record<string, unknown>): Promise<void> {
     const event = createEvent('ui', 'intent.action', { actionId, payload }, { priority: 'high' });
     await this.pushEvent(event);
+  }
+  
+  // ──────────────────────────────────────────────────────────────
+  // AUTONOMY PUBLIC API
+  // ──────────────────────────────────────────────────────────────
+  
+  /**
+   * Configurer le niveau d'autonomie
+   */
+  setAutonomyConfig(config: Partial<AutonomyConfig>): void {
+    this.autonomyConfig = { ...this.autonomyConfig, ...config };
+    this.autonomyCounter = new AutonomyCounter(this.autonomyConfig);
+    this.autonomyJournal.logDecision('Configuration d\'autonomie mise à jour', config);
+  }
+  
+  /**
+   * Obtenir la configuration d'autonomie actuelle
+   */
+  getAutonomyConfig(): AutonomyConfig {
+    return { ...this.autonomyConfig };
+  }
+  
+  /**
+   * Obtenir le journal d'autonomie
+   */
+  getAutonomyLog(count = 20): Array<{ type: string; summary: string; timestamp: number }> {
+    return this.autonomyJournal.getRecentEntries(count);
+  }
+  
+  /**
+   * Mettre en pause l'exécution autonome
+   */
+  pauseAutonomy(): void {
+    if (this.autoContinueEngine) {
+      this.autoContinueEngine.pause();
+      this.isAutonomousMode = false;
+      this.autonomyJournal.logDecision('Autonomie mise en pause');
+      this.callbacks.onAutonomyPause?.('Pause demandée par l\'utilisateur');
+    }
+  }
+  
+  /**
+   * Reprendre l'exécution autonome
+   */
+  resumeAutonomy(): void {
+    if (this.autoContinueEngine) {
+      this.autoContinueEngine.resume();
+      this.isAutonomousMode = true;
+      this.autonomyJournal.logDecision('Autonomie reprise');
+      this.callbacks.onAutonomyResume?.();
+    }
+  }
+  
+  /**
+   * Vérifier si en mode autonome
+   */
+  isInAutonomousMode(): boolean {
+    return this.isAutonomousMode;
+  }
+  
+  /**
+   * Obtenir les stats d'autonomie courantes
+   */
+  getAutonomyStats(): { actionCount: number; limit: number; isActive: boolean } {
+    const stats = this.autonomyCounter.getStats();
+    return {
+      actionCount: stats.count,
+      limit: stats.limit,
+      isActive: this.isAutonomousMode,
+    };
   }
 
   /**
@@ -759,15 +865,60 @@ export class CognitiveBrain {
 
   private async executePlan(plan: ExecutionPlan, correlationId: string): Promise<void> {
     this.setMode('executing');
+    this.isAutonomousMode = true;
+    
+    // Créer le moteur d'auto-continuation
+    this.autoContinueEngine = new AutoContinueEngine(this.autonomyConfig, {
+      onContinue: async (steps) => {
+        this.autonomyJournal.logAction(
+          `Auto-continue: ${steps.length} étape(s)`,
+          steps[0]?.id,
+          plan.id
+        );
+      },
+      
+      onPause: (reason) => {
+        this.callbacks.onNotification?.(reason, 'medium');
+        this.callbacks.onAutonomyPause?.(reason);
+      },
+      
+      onConfirmDestructive: async (action, description) => {
+        if (this.callbacks.onConfirmDestructive) {
+          return await this.callbacks.onConfirmDestructive(action, description);
+        }
+        // Par défaut, refuser les actions destructrices sans callback
+        this.autonomyJournal.logDecision('Action destructrice bloquée (pas de callback)', { action });
+        return false;
+      },
+      
+      onObjectiveReached: (summary) => {
+        this.autonomyJournal.logDecision('Objectif atteint', { summary });
+        this.callbacks.onNotification?.(summary, 'medium');
+      },
+    });
     
     // Créer l'exécuteur de plan avec callbacks
     this.planExecutor = createPlanExecutor(plan, this.agents, {
       onPlanEvent: (event) => {
         console.log(`[CognitiveBrain] Plan event: ${event.type}`);
+        // Notifier le journal d'autonomie
+        this.callbacks.onAutonomyLog?.({
+          type: event.type,
+          summary: `Plan: ${event.type}`,
+          timestamp: event.timestamp,
+        });
       },
       
       onStepUpdate: (step) => {
         this.callbacks.onUISchema?.(createPlanProgressSchema(plan, step));
+        this.autonomyCounter.increment();
+        
+        // Logger chaque action dans le journal
+        this.callbacks.onAutonomyLog?.({
+          type: 'step',
+          summary: `${step.action} (${step.status})`,
+          timestamp: Date.now(),
+        });
       },
       
       onProgressUpdate: (progress, currentStep) => {
@@ -779,27 +930,49 @@ export class CognitiveBrain {
       
       onPhaseComplete: (result) => {
         console.log(`[CognitiveBrain] Phase ${result.phaseIndex} complete, success: ${result.allSuccessful}`);
+        
+        // Si auto-continue activé et phase réussie, continuer automatiquement
+        if (this.autonomyConfig.triggers.autoContinue && result.allSuccessful) {
+          this.autonomyJournal.logDecision(`Phase ${result.phaseIndex + 1} réussie, auto-continue`);
+        }
+        
         if (!result.allSuccessful) {
           this.callbacks.onNotification?.(
             `Phase ${result.phaseIndex + 1}: ${result.stepResults.filter(r => !r.success).length} erreur(s)`,
             'high'
           );
+          
+          // Si auto-fix activé, tenter de corriger
+          if (this.autonomyConfig.triggers.autoFixErrors) {
+            this.autonomyJournal.logDecision('Tentative d\'auto-correction après échec de phase');
+          }
         }
       },
       
       onPlanComplete: (completedPlan, stats) => {
+        this.isAutonomousMode = false;
+        
         this.callbacks.onUISchema?.(createPlanCompletionSchema(completedPlan, stats));
-        this.callbacks.onNotification?.(
-          stats.failedSteps === 0 
-            ? `Plan exécuté avec succès (${stats.completedSteps} étapes)`
-            : `Plan terminé avec ${stats.failedSteps} erreur(s)`,
-          stats.failedSteps === 0 ? 'medium' : 'high'
-        );
+        
+        const summary = stats.failedSteps === 0 
+          ? `✅ Plan exécuté avec succès (${stats.completedSteps} étapes en ${Math.round(stats.totalDuration / 1000)}s)`
+          : `⚠️ Plan terminé avec ${stats.failedSteps} erreur(s)`;
+          
+        this.callbacks.onNotification?.(summary, stats.failedSteps === 0 ? 'medium' : 'high');
+        
+        // Logger le résumé final
+        this.autonomyJournal.logDecision('Plan terminé', {
+          objective: completedPlan.objective,
+          completed: stats.completedSteps,
+          failed: stats.failedSteps,
+          skipped: stats.skippedSteps,
+          duration: stats.totalDuration,
+        });
         
         // Enregistrer dans l'historique
         this.addToContext({
           role: 'assistant',
-          content: `Plan "${completedPlan.objective}" exécuté. ${stats.completedSteps}/${stats.totalSteps} étapes réussies.`,
+          content: `${summary}\nObjectif: "${completedPlan.objective}"\n${stats.completedSteps}/${stats.totalSteps} étapes réussies.`,
         });
         
         // Marquer le goal comme complété
@@ -811,14 +984,24 @@ export class CognitiveBrain {
       
       onError: (error, step) => {
         console.error(`[CognitiveBrain] Plan error: ${error}`, step);
+        this.autonomyJournal.logError(`Erreur étape: ${step?.action || 'unknown'}`, { error });
         this.callbacks.onError?.(error);
       },
     });
     
     try {
-      await this.planExecutor.execute();
+      // Vérifier si on doit utiliser l'auto-continuation autonome
+      if (this.autonomyConfig.level === 'auto-run' && this.autonomyConfig.triggers.autoContinue) {
+        // Mode autonome complet - le plan s'exécute jusqu'à l'objectif
+        this.autonomyJournal.logDecision('Démarrage en mode autonome total');
+        await this.planExecutor.execute();
+      } else {
+        // Mode classique
+        await this.planExecutor.execute();
+      }
     } catch (error) {
       console.error('[CognitiveBrain] Plan execution failed:', error);
+      this.autonomyJournal.logError('Échec d\'exécution du plan', { error: error instanceof Error ? error.message : 'Unknown' });
       this.callbacks.onUISchema?.(createErrorSchema(
         error instanceof Error ? error.message : 'Erreur d\'exécution du plan',
         true,
@@ -827,6 +1010,8 @@ export class CognitiveBrain {
     } finally {
       this.currentPlan = null;
       this.planExecutor = null;
+      this.autoContinueEngine = null;
+      this.isAutonomousMode = false;
       this.setMode('idle');
     }
   }

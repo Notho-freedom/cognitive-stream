@@ -11,8 +11,9 @@ import type {
   CognitiveTask, 
   CognitiveEvent,
   Message,
-  BrainCallbacks,
+  AutonomyConfig,
 } from '@/lib/brain';
+import type { ExtendedBrainCallbacks } from '@/lib/brain/CognitiveBrain';
 import type { CognitiveUISchema, ActionPayload } from '@/components/cognitive/dynamic/types';
 import type { CognitiveNotification, NotificationPriority } from '@/components/cognitive/NotificationQueue';
 import { isTransitionSchema } from '@/lib/brain/schemaFallbacks';
@@ -47,6 +48,12 @@ interface CognitiveBrainState {
   // Plan state
   isPlanning: boolean;
   isPlanExecuting: boolean;
+  
+  // Autonomy state
+  isAutonomousMode: boolean;
+  autonomyActionCount: number;
+  autonomyLimit: number;
+  autonomyLog: Array<{ type: string; summary: string; timestamp: number }>;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -75,6 +82,11 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     isLocalFallback: false,
     isPlanning: false,
     isPlanExecuting: false,
+    // Autonomy
+    isAutonomousMode: false,
+    autonomyActionCount: 0,
+    autonomyLimit: 50,
+    autonomyLog: [],
   });
 
   // Notification ref for callbacks
@@ -106,7 +118,7 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
   }, []);
 
   // Brain callbacks
-  const callbacks: BrainCallbacks = useMemo(() => ({
+  const callbacks: Partial<ExtendedBrainCallbacks> = useMemo(() => ({
     onStateChange: (mentalState: MentalState) => {
       setState(prev => ({
         ...prev,
@@ -200,6 +212,43 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
         isStreaming: false,
       }));
       notify(error, 'error', 'critical');
+    },
+    
+    // Extended callbacks pour l'autonomie
+    onAutonomyLog: (entry: { type: string; summary: string; timestamp: number }) => {
+      setState(prev => ({
+        ...prev,
+        autonomyLog: [...prev.autonomyLog.slice(-100), entry],
+      }));
+    },
+    
+    onAutonomyPause: (reason: string) => {
+      setState(prev => ({
+        ...prev,
+        isAutonomousMode: false,
+      }));
+      notify(`Autonomie en pause: ${reason}`, 'warning', 'high');
+    },
+    
+    onAutonomyResume: () => {
+      setState(prev => ({
+        ...prev,
+        isAutonomousMode: true,
+      }));
+      notify('Mode autonome repris', 'info', 'medium');
+    },
+    
+    onConfirmDestructive: async (action: string, description: string): Promise<boolean> => {
+      // Pour l'instant, afficher une notification et retourner false
+      // TODO: Implémenter un dialog de confirmation
+      notify(`Action destructrice bloquée: ${action}`, 'warning', 'high');
+      return false;
+    },
+    
+    onAskQuestion: async (question: string): Promise<string> => {
+      // TODO: Implémenter un dialog de question
+      notify(`Question en attente: ${question}`, 'info', 'medium');
+      return '';
     },
   }), [notify]);
 
@@ -386,7 +435,33 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
       isLocalFallback: false,
       isPlanning: false,
       isPlanExecuting: false,
+      isAutonomousMode: false,
+      autonomyActionCount: 0,
+      autonomyLimit: 50,
+      autonomyLog: [],
     });
+  }, []);
+
+  // ──────────────────────────────────────────────────────────────
+  // AUTONOMY CONTROLS
+  // ──────────────────────────────────────────────────────────────
+
+  const pauseAutonomy = useCallback(() => {
+    if (brainRef.current) {
+      brainRef.current.pauseAutonomy();
+    }
+  }, []);
+
+  const resumeAutonomy = useCallback(() => {
+    if (brainRef.current) {
+      brainRef.current.resumeAutonomy();
+    }
+  }, []);
+
+  const setAutonomyConfig = useCallback((config: Partial<AutonomyConfig>) => {
+    if (brainRef.current) {
+      brainRef.current.setAutonomyConfig(config);
+    }
   }, []);
 
   // ──────────────────────────────────────────────────────────────
@@ -419,11 +494,22 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     isPlanning: state.isPlanning,
     isPlanExecuting: state.isPlanExecuting,
     
+    // Autonomy state
+    isAutonomousMode: state.isAutonomousMode,
+    autonomyActionCount: state.autonomyActionCount,
+    autonomyLimit: state.autonomyLimit,
+    autonomyLog: state.autonomyLog,
+    
     // Actions
     sendMessage,
     handleAction,
     confirmAction,
     reset,
+    
+    // Autonomy controls
+    pauseAutonomy,
+    resumeAutonomy,
+    setAutonomyConfig,
     
     // Brain access (for advanced usage)
     getBrain: () => brainRef.current,
