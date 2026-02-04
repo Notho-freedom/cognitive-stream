@@ -615,6 +615,143 @@ IMPORTANT:
 }
 
 // ──────────────────────────────────────────────────────────────
+// AUTONOMY JOURNAL SCHEMA
+// Affiche le journal des actions autonomes
+// ──────────────────────────────────────────────────────────────
+
+interface AutonomyLogEntry {
+  type: string;
+  summary: string;
+  timestamp: number;
+  outcome?: 'success' | 'failure' | 'pending' | 'skipped';
+}
+
+export function createAutonomyJournalSchema(
+  entries: AutonomyLogEntry[],
+  stats: { actionCount: number; limit: number; isActive: boolean }
+): CognitiveUISchema {
+  const blocks: CognitiveUISchema['blocks'] = [];
+  
+  // Header avec stats
+  blocks.push({
+    type: 'stack',
+    direction: 'horizontal',
+    gap: 'lg',
+    children: [
+      {
+        type: 'status',
+        state: stats.isActive ? 'loading' : 'info',
+        message: stats.isActive ? 'Mode autonome actif' : 'Mode autonome inactif',
+      },
+      {
+        type: 'badge',
+        text: `${stats.actionCount}/${stats.limit} actions`,
+        variant: stats.actionCount > stats.limit * 0.8 ? 'warning' : 'default',
+      },
+    ],
+  });
+  
+  // Barre de progression vers la limite
+  blocks.push({
+    type: 'progress',
+    value: Math.min((stats.actionCount / stats.limit) * 100, 100),
+    max: 100,
+    label: 'Actions autonomes',
+    showValue: false,
+  });
+  
+  // Liste des entrées récentes
+  const recentEntries = entries.slice(-15).reverse();
+  
+  blocks.push({
+    type: 'divider',
+  });
+  
+  blocks.push({
+    type: 'text',
+    content: 'Journal d\'activité',
+    variant: 'heading',
+  });
+  
+  for (const entry of recentEntries) {
+    const icon = getLogTypeIcon(entry.type);
+    const time = new Date(entry.timestamp).toLocaleTimeString('fr-FR', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    
+    blocks.push({
+      type: 'stack',
+      direction: 'horizontal',
+      gap: 'sm',
+      children: [
+        {
+          type: 'text',
+          content: `${time}`,
+          variant: 'caption',
+        },
+        {
+          type: 'text',
+          content: `${icon} ${entry.summary}`,
+          variant: entry.type === 'error' ? 'caption' : 'body',
+        },
+      ],
+    });
+  }
+  
+  // Boutons de contrôle
+  blocks.push({
+    type: 'divider',
+  });
+  
+  blocks.push({
+    type: 'stack',
+    direction: 'horizontal',
+    gap: 'md',
+    children: [
+      {
+        type: 'button',
+        label: stats.isActive ? '⏸️ Pause' : '▶️ Reprendre',
+        actionId: stats.isActive ? 'autonomy-pause' : 'autonomy-resume',
+        variant: 'secondary',
+      },
+      {
+        type: 'button',
+        label: '🔄 Réinitialiser',
+        actionId: 'autonomy-reset',
+        variant: 'ghost',
+      },
+    ],
+  });
+  
+  return {
+    metadata: {
+      title: 'Journal d\'autonomie',
+      description: `${entries.length} entrées • ${stats.actionCount} actions`,
+    },
+    layout: {
+      width: 'md',
+      maxHeight: 'lg',
+    },
+    blocks,
+  };
+}
+
+function getLogTypeIcon(type: string): string {
+  const icons: Record<string, string> = {
+    action: '▶️',
+    decision: '🧠',
+    error: '❌',
+    fix: '🔧',
+    question: '❓',
+    confirmation: '✅',
+    step: '📌',
+  };
+  return icons[type] || '•';
+}
+
+// ──────────────────────────────────────────────────────────────
 // HELPERS
 // ──────────────────────────────────────────────────────────────
 
