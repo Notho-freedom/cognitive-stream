@@ -108,7 +108,30 @@ export class ThinkerAgent implements Agent<ThinkParams, ThinkResult> {
 
   async execute(task: CognitiveTask<ThinkParams, ThinkResult>): Promise<AgentResult<ThinkResult>> {
     const startTime = Date.now();
-    const { messages, context, mode } = task.params;
+    const params = (task.params || {}) as Partial<ThinkParams> & Record<string, unknown>;
+    
+    // Extraire les paramètres avec fallbacks sûrs
+    let messages: Message[] = params.messages || [];
+    const context = params.context;
+    const mode = params.mode || 'respond';
+
+    // Vérification de sécurité - si pas de messages valides, créer un contexte minimal
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      // Si params contient des données brutes d'une tâche de plan, les transformer
+      const taskDescription = this.extractTaskDescription(params);
+      if (taskDescription) {
+        messages = [{
+          role: 'user' as const,
+          content: taskDescription,
+        }];
+      } else {
+        return {
+          success: false,
+          error: 'ThinkerAgent requires messages or valid task parameters',
+          duration: Date.now() - startTime,
+        };
+      }
+    }
 
     try {
       // Générer le prompt système approprié
@@ -291,6 +314,42 @@ export class ThinkerAgent implements Agent<ThinkParams, ThinkResult> {
     }
   }
 
+  /**
+   * Extrait une description de tâche à partir de paramètres arbitraires
+   * Utilisé quand l'agent est appelé par le PlanExecutor sans format standard
+   */
+  private extractTaskDescription(params: Record<string, unknown>): string | null {
+    // Chercher des champs courants qui pourraient contenir une description
+    const descriptionFields = [
+      'description', 'taskDescription', 'task-description',
+      'query', 'prompt', 'question', 'request',
+      'content', 'text', 'message', 'input'
+    ];
+    
+    for (const field of descriptionFields) {
+      if (typeof params[field] === 'string' && params[field]) {
+        return params[field] as string;
+      }
+    }
+    
+    // Si params a un champ action, construire une description
+    if (params.action && typeof params.action === 'string') {
+      const paramsStr = Object.entries(params)
+        .filter(([k]) => k !== 'action')
+        .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+        .join(', ');
+      return `Execute action: ${params.action}. Parameters: ${paramsStr}`;
+    }
+    
+    // Fallback: sérialiser tous les params
+    const keys = Object.keys(params);
+    if (keys.length > 0) {
+      return `Analyze and process the following data: ${JSON.stringify(params)}`;
+    }
+    
+    return null;
+  }
+
   private createThought(content: string, type: Thought['type']): Thought {
     return {
       id: generateId('thought'),
@@ -323,7 +382,7 @@ export class ThinkerAgent implements Agent<ThinkParams, ThinkResult> {
 
     return {
       id: planId,
-      description: planData.description || 'Plan généré',
+      description: planData?.description || 'Plan généré',
       steps,
       status: 'draft',
       createdAt: Date.now(),
