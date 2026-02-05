@@ -128,13 +128,25 @@ export class PlanExecutor {
       });
       
       // Marquer comme skipped si une dépendance a échoué
-      const depFailed = step.dependsOn.some(depId => {
+      const failedDeps = step.dependsOn.filter(depId => {
         const dep = this.plan.steps.find(s => s.id === depId);
         return dep?.status === 'failed' || dep?.status === 'skipped';
       });
       
-      if (depFailed && !step.canFail) {
+      if (failedDeps.length > 0) {
+        const failedReason = `Dependency failed: ${failedDeps.join(', ')}`;
+        if (step.isCritical) {
+          step.status = 'failed';
+          step.error = failedReason;
+          step.completedAt = Date.now();
+          this.callbacks.onStepUpdate?.(step);
+          this.emitEvent('step.failed', { stepId: step.id, error: step.error, blocked: true });
+          this.callbacks.onError?.(step.error, step);
+          return false;
+        }
+
         step.status = 'skipped';
+        step.error = failedReason;
         this.callbacks.onStepUpdate?.(step);
         return false;
       }
@@ -291,7 +303,7 @@ export class PlanExecutor {
     if (tracker.count >= PlanExecutor.MAX_SAME_ERROR_COUNT) {
       console.warn(`[PlanExecutor] Same error repeated ${tracker.count} times for step ${step.id}, forcing resolution`);
       
-      if (step.canFail) {
+      if (step.canFail && !step.isCritical) {
         step.status = 'skipped';
         step.error = `Skipped after ${tracker.count} identical errors: ${error}`;
         this.callbacks.onStepUpdate?.(step);
@@ -360,7 +372,7 @@ export class PlanExecutor {
     this.callbacks.onError?.(error, step);
     
     // Exécuter le fallback si disponible
-    if (step.fallback && step.canFail) {
+    if (step.fallback && step.canFail && !step.isCritical) {
       await this.executeFallback(step);
     }
   }
@@ -417,9 +429,20 @@ export class PlanExecutor {
       if (step.status === 'pending') {
         // Vérifier si dépend d'une étape échouée
         const dependsOnFailed = step.dependsOn.some(id => failedStepIds.has(id));
-        if (dependsOnFailed && !step.canFail) {
-          step.status = 'skipped';
-          this.callbacks.onStepUpdate?.(step);
+        if (dependsOnFailed) {
+          const failedReason = `Dependency failed: ${step.dependsOn.filter(id => failedStepIds.has(id)).join(', ')}`;
+          if (step.isCritical) {
+            step.status = 'failed';
+            step.error = failedReason;
+            step.completedAt = Date.now();
+            this.callbacks.onStepUpdate?.(step);
+            this.emitEvent('step.failed', { stepId: step.id, error: step.error, blocked: true });
+            this.callbacks.onError?.(step.error, step);
+          } else {
+            step.status = 'skipped';
+            step.error = failedReason;
+            this.callbacks.onStepUpdate?.(step);
+          }
         }
       }
     }

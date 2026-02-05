@@ -24,11 +24,11 @@
    suggestion?: string;
  }
  
- export interface ValidationWarning {
-   stepId: string;
-   code: 'DEPRECATED_ACTION' | 'OPTIONAL_PARAM_MISSING' | 'LONG_DURATION';
-   message: string;
- }
+export interface ValidationWarning {
+  stepId: string;
+  code: 'DEPRECATED_ACTION' | 'OPTIONAL_PARAM_MISSING' | 'LONG_DURATION' | 'CRITICAL_CAN_FAIL';
+  message: string;
+}
  
  // ──────────────────────────────────────────────────────────────
  // AGENT CAPABILITIES REGISTRY
@@ -203,17 +203,25 @@
        }
      }
      
-     // Special case: uiBuilder.adapt needs context.previousSchema
-     if (step.agent === 'uiBuilder' && step.action === 'adapt') {
-       const context = step.params.context as Record<string, unknown> | undefined;
-       if (!context?.previousSchema) {
-         warnings.push({
+    // Special case: uiBuilder.adapt needs context.previousSchema
+    if (step.agent === 'uiBuilder' && step.action === 'adapt') {
+      const context = step.params.context as Record<string, unknown> | undefined;
+      if (!context?.previousSchema) {
+        warnings.push({
            stepId: step.id,
            code: 'OPTIONAL_PARAM_MISSING',
            message: 'uiBuilder.adapt works best with context.previousSchema',
-         });
-       }
-     }
+        });
+      }
+    }
+
+    if (step.isCritical && step.canFail) {
+      warnings.push({
+        stepId: step.id,
+        code: 'CRITICAL_CAN_FAIL',
+        message: 'Critical steps should not be marked as canFail',
+      });
+    }
      
      return {
        isValid: errors.length === 0,
@@ -293,18 +301,23 @@
    /**
     * Validate and auto-correct an entire plan
     */
-   validateAndCorrectPlan(plan: ExecutionPlan): { plan: ExecutionPlan; correctionsMade: number } {
-     let correctionsMade = 0;
-     const correctedSteps: PlanStep[] = [];
-     
-     for (const step of plan.steps) {
-       const validation = this.validateStep(step);
-       
-       if (validation.isValid) {
-         correctedSteps.push(step);
-       } else {
-         // Try to correct
-         const hasUnknownAction = validation.errors.some(e => e.code === 'UNKNOWN_ACTION');
+  validateAndCorrectPlan(plan: ExecutionPlan): { plan: ExecutionPlan; correctionsMade: number } {
+    let correctionsMade = 0;
+    const correctedSteps: PlanStep[] = [];
+    
+    for (const step of plan.steps) {
+      const validation = this.validateStep(step);
+      
+      if (validation.isValid) {
+        if (step.isCritical && step.canFail) {
+          correctedSteps.push({ ...step, canFail: false });
+          correctionsMade++;
+        } else {
+          correctedSteps.push(step);
+        }
+      } else {
+        // Try to correct
+        const hasUnknownAction = validation.errors.some(e => e.code === 'UNKNOWN_ACTION');
          
          if (hasUnknownAction) {
            const corrected = this.correctStep(step);
@@ -318,12 +331,15 @@
            }
          } else {
            // Other errors (missing params, etc.) - try to inject defaults
-           const fixed = this.injectDefaults(step);
+           let fixed = this.injectDefaults(step);
+           if (fixed.isCritical && fixed.canFail) {
+             fixed = { ...fixed, canFail: false };
+           }
            correctedSteps.push(fixed);
            if (fixed !== step) correctionsMade++;
-         }
-       }
-     }
+        }
+      }
+    }
      
      return {
        plan: {
