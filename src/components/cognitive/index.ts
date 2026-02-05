@@ -8,6 +8,7 @@ export { FuturisticFrame } from './FuturisticFrame';
 export { EphemeralAction } from './EphemeralAction';
 export { SystemStatus } from './SystemStatus';
 export { LoadingScreen } from './LoadingScreen';
+export { AutonomyControls } from './AutonomyControls';
 export { 
   NotificationQueue, 
   NotificationProvider, 
