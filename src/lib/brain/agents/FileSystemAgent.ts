@@ -10,7 +10,7 @@ import type { Agent, AgentResult, CognitiveTask } from '../types';
 // ──────────────────────────────────────────────────────────────
 
 interface FSParams {
-  action: 'read' | 'write' | 'list' | 'exists' | 'delete' | 'search';
+  action?: 'read' | 'write' | 'list' | 'exists' | 'delete' | 'search'; // Optional - prefer task.action
   path: string;
   content?: string;
   options?: {
@@ -54,7 +54,23 @@ export class FileSystemAgent implements Agent<FSParams, FSResult> {
 
   async execute(task: CognitiveTask<FSParams, FSResult>): Promise<AgentResult<FSResult>> {
     const startTime = Date.now();
-    const { action, path, content, options } = task.params;
+    const { path, content, options } = task.params;
+    
+    // UNIFIED ACTION CONTRACT: use task.action first, fallback to params.action for legacy
+    const action = (task.action as FSParams['action']) || task.params.action;
+    
+    if (!action) {
+      return {
+        success: false,
+        error: 'No action specified for FileSystemAgent',
+        duration: Date.now() - startTime,
+      };
+    }
+    
+    // Log legacy usage for debugging
+    if (task.params.action && !task.action) {
+      console.warn('[FileSystemAgent] Legacy action format used (params.action). Migrate to task.action.');
+    }
 
     if (!window.cognitiveBridge) {
       return {

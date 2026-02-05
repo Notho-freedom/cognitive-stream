@@ -12,7 +12,7 @@ import generateUnifiedSystemPrompt from '@/lib/UNIFIED_SYSTEM_PROMPT';
 // ──────────────────────────────────────────────────────────────
 
 interface UIBuilderParams {
-  action: 'build' | 'adapt' | 'merge';
+  action?: 'build' | 'adapt' | 'merge'; // Optional - prefer task.action
   data: unknown;
   context?: {
     previousSchema?: unknown;
@@ -66,12 +66,26 @@ export class UIBuilderAgent implements Agent<UIBuilderParams, UIBuilderResult> {
 
   async execute(task: CognitiveTask<UIBuilderParams, UIBuilderResult>): Promise<AgentResult<UIBuilderResult>> {
     const startTime = Date.now();
-    const { action, data, context, messages } = task.params;
+    const { data, context, messages } = task.params;
+    
+    // UNIFIED ACTION CONTRACT: use task.action first, fallback to params.action for legacy
+    const action = (task.action as 'build' | 'adapt' | 'merge') || task.params.action;
+    
+    if (!action) {
+      console.warn('[UIBuilderAgent] No action specified, defaulting to "build"');
+    }
+    
+    const effectiveAction = action || 'build';
+    
+    // Log legacy usage for debugging
+    if (task.params.action && !task.action) {
+      console.warn('[UIBuilderAgent] Legacy action format used (params.action). Migrate to task.action.');
+    }
 
     try {
       let result: UIBuilderResult;
 
-      switch (action) {
+      switch (effectiveAction) {
         case 'build': {
           // Construire un schéma à partir des données
           const schema = await this.buildSchemaFromData(data, context, messages);
@@ -118,7 +132,7 @@ export class UIBuilderAgent implements Agent<UIBuilderParams, UIBuilderResult> {
         default:
           return {
             success: false,
-            error: `Unknown action: ${action}`,
+            error: `Unknown action: ${effectiveAction}`,
             duration: Date.now() - startTime,
           };
       }
@@ -127,7 +141,7 @@ export class UIBuilderAgent implements Agent<UIBuilderParams, UIBuilderResult> {
         success: true,
         data: result,
         duration: Date.now() - startTime,
-        metadata: { action, provider: this.lastProvider },
+        metadata: { action: effectiveAction, provider: this.lastProvider },
       };
     } catch (error) {
       return {
