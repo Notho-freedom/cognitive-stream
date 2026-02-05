@@ -4,6 +4,7 @@ import { FuturisticFrame } from './FuturisticFrame';
 import { StateIndicator } from './StateIndicator';
 import { ThoughtStream } from './ThoughtStream';
 import { CognitiveRenderer } from './dynamic/CognitiveRenderer';
+import { AutonomyControls } from './AutonomyControls';
 import { useCognitiveBrain } from '@/hooks/useCognitiveBrain';
 import { useNotifications } from './NotificationQueue';
 import { useCognitiveEdgeTTS } from '@/hooks/useCognitiveEdgeTTS';
@@ -51,6 +52,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
   const { push: notifyPush } = useNotifications();
   
   // === UTILISATION DU CERVEAU COGNITIF ===
+  const brain = useCognitiveBrain(notifyPush);
   const { 
     messages, 
     schema, 
@@ -68,7 +70,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     handleAction,
     confirmAction,
     reset 
-  } = useCognitiveBrain(notifyPush);
+  } = brain;
 
   // === TTS INTEGRATION ===
   const tts = useCognitiveEdgeTTS({
@@ -223,6 +225,9 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
 
   return (
     <div className={cn(widthClass, isCentered && 'mx-auto', className)}>
+      <div className="mb-6">
+        <AutonomyControls brain={brain} />
+      </div>
 
       {/* Page d'accueil avant première interaction */}
       <AnimatePresence mode="wait">
