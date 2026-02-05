@@ -68,3 +68,17 @@ export {
   isErrorSchema,
   ASYNC_CONFIG,
 } from './schemaFallbacks';
+
+// Plan Validator
+export {
+  PlanValidator,
+  createPlanValidator,
+  categorizeError,
+} from './PlanValidator';
+export type {
+  ValidationResult,
+  ValidationError,
+  ValidationWarning,
+  ErrorCategory,
+  CategorizedError,
+} from './PlanValidator';

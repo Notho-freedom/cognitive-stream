@@ -58,6 +58,7 @@ import {
   buildCorrectionPrompt,
   ASYNC_CONFIG,
 } from './schemaFallbacks';
+import { PlanValidator } from './PlanValidator';
 
 // ──────────────────────────────────────────────────────────────
 // DEFAULT CONFIGURATION
@@ -129,6 +130,7 @@ export class CognitiveBrain {
   // Plan execution
   private currentPlan: ExecutionPlan | null = null;
   private planExecutor: PlanExecutor | null = null;
+  private planValidator: PlanValidator;
   
   // ═══════════════════════════════════════════════════════════════
   // AUTONOMIE - Mode agent autonome jusqu'à l'objectif
@@ -185,6 +187,9 @@ export class CognitiveBrain {
       ['uiBuilder', createUIBuilderAgent()],
       ['notification', this.notificationAgent],
     ]);
+    
+    // Initialize plan validator
+    this.planValidator = new PlanValidator();
     
     console.log('[CognitiveBrain] Initialized with autonomy level:', this.autonomyConfig.level);
   }
@@ -994,7 +999,108 @@ export class CognitiveBrain {
       if (this.autonomyConfig.level === 'auto-run' && this.autonomyConfig.triggers.autoContinue) {
         // Mode autonome complet - le plan s'exécute jusqu'à l'objectif
         this.autonomyJournal.logDecision('Démarrage en mode autonome total');
-        await this.planExecutor.execute();
+        
+        // Use AutoContinueEngine as the real driver
+        const autonomousResult = await this.autoContinueEngine!.runUntilObjective(
+          plan,
+          async (step: PlanStep) => {
+            // Find the agent and execute the step
+            const agent = this.agents.get(step.agent);
+            if (!agent) {
+              return { success: false, error: `Agent not found: ${step.agent}` };
+            }
+            
+            // Create task and execute
+            const task = createTask(
+              step.agent,
+              step.action,
+              step.params,
+              correlationId,
+              {
+                timeout: step.estimatedDuration * 2,
+                maxRetries: step.maxRetries,
+              }
+            );
+            
+            try {
+              const isAvailable = await agent.isAvailable();
+              if (!isAvailable) {
+                return { success: false, error: `Agent unavailable: ${step.agent}` };
+              }
+              
+              step.status = 'running';
+              step.startedAt = Date.now();
+              
+              const result = await agent.execute(task);
+              
+              step.completedAt = Date.now();
+              step.actualDuration = step.completedAt - step.startedAt;
+              step.result = result.data;
+              
+              if (result.success) {
+                step.status = 'completed';
+              } else {
+                step.status = 'failed';
+                step.error = result.error;
+                
+                // Try to auto-correct if it's a structural error
+                if (result.error?.includes('Unknown action') || result.error?.includes('No action specified')) {
+                  const corrected = this.planValidator.correctStep(step);
+                  if (corrected && corrected.action !== step.action) {
+                    console.log(`[CognitiveBrain] Auto-correcting step ${step.id}: ${step.action} → ${corrected.action}`);
+                    Object.assign(step, corrected);
+                    
+                    // Retry with corrected step
+                    const retryTask = createTask(
+                      corrected.agent,
+                      corrected.action,
+                      corrected.params,
+                      correlationId
+                    );
+                    const retryResult = await agent.execute(retryTask);
+                    if (retryResult.success) {
+                      step.status = 'completed';
+                      step.result = retryResult.data;
+                      step.error = undefined;
+                      return { success: true };
+                    }
+                  }
+                }
+              }
+              
+              // Update UI with progress
+              this.callbacks.onUISchema?.(createPlanProgressSchema(plan, step));
+              
+              return { success: result.success, error: result.error };
+            } catch (error) {
+              const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+              step.status = 'failed';
+              step.error = errorMsg;
+              return { success: false, error: errorMsg };
+            }
+          }
+        );
+        
+        // Handle autonomous result
+        if (autonomousResult.success) {
+          this.callbacks.onNotification?.(autonomousResult.summary, 'medium');
+        } else {
+          this.callbacks.onNotification?.(autonomousResult.summary, 'high');
+        }
+        
+        // Show completion schema
+        const stats = {
+          totalSteps: plan.steps.length,
+          completedSteps: plan.steps.filter(s => s.status === 'completed').length,
+          failedSteps: plan.steps.filter(s => s.status === 'failed').length,
+          skippedSteps: plan.steps.filter(s => s.status === 'skipped').length,
+          totalDuration: Date.now() - (plan.startedAt || Date.now()),
+          avgStepDuration: 0,
+        };
+        stats.avgStepDuration = stats.totalDuration / Math.max(stats.completedSteps, 1);
+        
+        this.callbacks.onUISchema?.(createPlanCompletionSchema(plan, stats));
+        
       } else {
         // Mode classique
         await this.planExecutor.execute();
