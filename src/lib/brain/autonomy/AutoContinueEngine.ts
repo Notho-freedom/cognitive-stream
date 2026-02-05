@@ -301,15 +301,6 @@ export class AutoContinueEngine {
           return await executeStep(step);
         },
       },
-      {
-        name: 'skip-optional',
-        condition: () => step.canFail === true,
-        fix: async () => {
-          // Marquer comme skipped si optionnel
-          step.status = 'skipped';
-          return { success: true };
-        },
-      },
     ];
     
     for (const strategy of strategies) {
@@ -356,12 +347,11 @@ export class AutoContinueEngine {
   }
   
   private canSkipStep(step: PlanStep, plan: ExecutionPlan): boolean {
-    // Peut-on skipper cette étape ?
-    if (step.canFail) return true;
+    if (step.isCritical) return false;
+    if (!step.canFail) return false;
     
-    // Vérifier si d'autres étapes critiques en dépendent
     const dependents = plan.steps.filter(s => s.dependsOn.includes(step.id));
-    return dependents.every(d => d.canFail);
+    return dependents.every(d => d.canFail && !d.isCritical);
   }
   
   private generateCompletionSummary(plan: ExecutionPlan): string {

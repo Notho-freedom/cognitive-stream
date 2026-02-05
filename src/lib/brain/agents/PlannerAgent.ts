@@ -44,8 +44,9 @@ RÈGLES STRICTES:
 1. Décompose l'objectif en étapes ATOMIQUES et VÉRIFIABLES
 2. Identifie les DÉPENDANCES entre étapes (une étape ne peut commencer que si ses dépendances sont terminées)
 3. Maximise le PARALLÉLISME (étapes indépendantes = même phase)
-4. Prévois des FALLBACKS pour chaque étape critique
-5. Estime la durée de chaque étape en millisecondes
+4. Marque TOUTE étape critique avec "isCritical": true et "canFail": false
+5. Prévois des FALLBACKS pour chaque étape critique
+6. Estime la durée de chaque étape en millisecondes
 
 AGENTS DISPONIBLES:
 - thinker: Raisonnement, analyse, génération de contenu, décisions
@@ -73,6 +74,7 @@ FORMAT JSON STRICT (aucun texte avant/après):
       "dependsOn": [],
       "estimatedDuration": 3000,
       "canFail": false,
+      "isCritical": true,
       "fallback": null
     },
     {
@@ -84,6 +86,7 @@ FORMAT JSON STRICT (aucun texte avant/après):
       "dependsOn": ["step_1"],
       "estimatedDuration": 2000,
       "canFail": true,
+      "isCritical": false,
       "fallback": { "action": "notify_error", "agent": "notification" }
     }
   ],
@@ -216,9 +219,46 @@ interface RawPlanData {
     dependsOn?: string[];
     estimatedDuration?: number;
     canFail?: boolean;
+    isCritical?: boolean;
     fallback?: { action: string; agent: string } | null;
   }>;
   parallelGroups?: string[][];
+}
+
+const CRITICAL_ACTION_KEYWORDS = [
+  'validate',
+  'verify',
+  'test',
+  'deploy',
+  'publish',
+  'migrate',
+  'backup',
+  'restore',
+  'apply',
+  'commit',
+  'build',
+  'install',
+  'configure',
+  'setup',
+  'init',
+  'plan',
+  'analyze',
+  'analyse',
+  'check',
+];
+
+function inferCriticalStep(step: {
+  action: string;
+  description?: string;
+  canFail?: boolean;
+  dependsOn?: string[];
+}): boolean {
+  if (step.canFail === false) return true;
+  const description = `${step.action} ${step.description || ''}`.toLowerCase();
+  if (CRITICAL_ACTION_KEYWORDS.some(keyword => description.includes(keyword))) {
+    return true;
+  }
+  return (step.dependsOn || []).length === 0;
 }
 
 function transformToPlan(raw: RawPlanData, objective: string): ExecutionPlan {
@@ -231,6 +271,7 @@ function transformToPlan(raw: RawPlanData, objective: string): ExecutionPlan {
     dependsOn: s.dependsOn || [],
     estimatedDuration: s.estimatedDuration || PLAN_CONFIG.defaultStepTimeout,
     canFail: s.canFail ?? true,
+    isCritical: s.isCritical ?? inferCriticalStep(s),
     fallback: s.fallback || null,
     status: 'pending',
     retryCount: 0,
@@ -303,6 +344,7 @@ function createDefaultPlan(objective: string): ExecutionPlan {
         dependsOn: [],
         estimatedDuration: 5000,
         canFail: false,
+        isCritical: true,
         fallback: null,
         status: 'pending',
         retryCount: 0,
@@ -316,7 +358,8 @@ function createDefaultPlan(objective: string): ExecutionPlan {
         params: { objective },
         dependsOn: ['step_analyze'],
         estimatedDuration: 10000,
-        canFail: true,
+        canFail: false,
+        isCritical: true,
         fallback: { action: 'notify', agent: 'notification' },
         status: 'pending',
         retryCount: 0,
