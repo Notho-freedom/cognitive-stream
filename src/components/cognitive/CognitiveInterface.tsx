@@ -4,6 +4,8 @@ import { FuturisticFrame } from './FuturisticFrame';
 import { StateIndicator } from './StateIndicator';
 import { ThoughtStream } from './ThoughtStream';
 import { CognitiveRenderer } from './dynamic/CognitiveRenderer';
+import { AutonomyConfirmDialog } from './AutonomyConfirmDialog';
+import { AutonomyQuestionDialog } from './AutonomyQuestionDialog';
 import { AutonomyControls } from './AutonomyControls';
 import { useCognitiveBrain } from '@/hooks/useCognitiveBrain';
 import { useNotifications } from './NotificationQueue';
@@ -61,6 +63,8 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     isStreaming, 
     error,
     pendingAction,
+    pendingConfirmation,
+    pendingQuestion,
     aiProvider,
     aiModel,
     isLocalFallback,
@@ -69,6 +73,8 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     sendMessage, 
     handleAction,
     confirmAction,
+    respondToConfirmation,
+    respondToQuestion,
     reset 
   } = brain;
 
@@ -225,6 +231,19 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
 
   return (
     <div className={cn(widthClass, isCentered && 'mx-auto', className)}>
+      <AutonomyConfirmDialog
+        open={Boolean(pendingConfirmation)}
+        action={pendingConfirmation?.action}
+        description={pendingConfirmation?.description}
+        onCancel={() => respondToConfirmation(false)}
+        onConfirm={() => respondToConfirmation(true)}
+      />
+      <AutonomyQuestionDialog
+        open={Boolean(pendingQuestion)}
+        question={pendingQuestion?.question}
+        onCancel={() => respondToQuestion('')}
+        onSubmit={respondToQuestion}
+      />
       <div className="mb-6">
         <AutonomyControls brain={brain} />
       </div>
