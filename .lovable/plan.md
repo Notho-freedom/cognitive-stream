@@ -1,374 +1,199 @@
 
-# Plan : Système de Planification Multi-Étapes Autonome
-
-## Objectif
-Transformer le cerveau cognitif en un système autonome capable de décomposer automatiquement des demandes complexes (ex: "crée-moi une app de chat") en sous-tâches, les exécuter en parallèle/séquence, gérer les erreurs avec auto-correction, et continuer jusqu'à complétion.
+# Objectif
+Rendre l’autonomie réellement “agentique” (comme Cursor/Lovable) en supprimant les causes structurelles d’échecs répétitifs et en faisant en sorte que le cerveau puisse détecter une erreur, la corriger (plan/step), réessayer, et continuer jusqu’à atteindre l’objectif — sans intervention manuelle.
 
 ---
 
-## Problèmes à résoudre
+# Ce que montrent tes logs (diagnostic précis)
 
-1. **Erreur de build** : Le tableau `GROQ_MODELS` est vide dans `groq.ts`, causant une erreur TypeScript
-2. **Pas de planification** : Le cerveau ne décompose pas les tâches complexes en sous-étapes
-3. **Pas de parallélisme** : Les tâches sont exécutées séquentiellement, une par une
-4. **Pas d'auto-correction** : Quand une étape échoue, le système ne sait pas replanifier
-5. **Pas de persistance de plan** : Pas de suivi des étapes accomplies vs restantes
+## 1) Erreur runtime “Unknown action: undefined” (uiBuilder / filesystem / system)
+Dans tes agents “capability-based” (UIBuilderAgent, FileSystemAgent, SystemAgent), l’**action est lue depuis `task.params.action`** :
 
----
+- `UIBuilderAgent`: `const { action } = task.params`
+- `FileSystemAgent`: `const { action } = task.params`
+- `SystemAgent`: `const { action } = task.params`
 
-## Architecture proposée
+Mais `PlanExecutor` construit les tâches avec :
+- `createTask(step.agent, step.action, step.params, ...)`
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                        COGNITIVE BRAIN                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│   ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐   │
-│   │  PLANNER    │───▶│  PLAN QUEUE  │───▶│  TASK EXECUTOR  │   │
-│   │  Agent      │    │  (Steps)     │    │  (Parallel)     │   │
-│   └─────────────┘    └──────────────┘    └────────┬────────┘   │
-│         ▲                                          │            │
-│         │                                          ▼            │
-│   ┌─────┴─────────────────────────────────────────────────┐    │
-│   │                   RESULT OBSERVER                      │    │
-│   │   • Analyse résultats                                  │    │
-│   │   • Détecte erreurs → trigger replanification          │    │
-│   │   • Marque étapes complétées                           │    │
-│   │   • Déclenche étapes suivantes (dépendances)           │    │
-│   └───────────────────────────────────────────────────────┘    │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+Donc **`step.action` se retrouve dans `task.action`**, pas dans `task.params.action`.
+Résultat : si le planner n’a pas mis `params.action`, alors `task.params.action === undefined` → “Unknown action: undefined”.
 
----
+C’est exactement ce que tu vois sur `get_current_tab` :
+- la step a `action: "get_current_tab"`
+- mais `params: {}` → donc côté agent `action === undefined`.
 
-## Solution en 6 étapes
+## 2) Auto-correction “voit l’erreur” mais ne la résout pas
+Tu as déjà un `IntelligentErrorResolver` capable de faire un `replace` quand l’erreur contient `Unknown action`.
+Mais même quand il remplace `get_current_tab` → `build`, il peut rester coincé si :
+- la correction ne **répare pas la forme attendue** (ex: injecter `params.action`)
+- ou si après remplacement on ne **re-valide pas** le step modifié (et on retombe dans un retry identique).
 
-### Étape 1 : Corriger l'erreur de build (groq.ts)
+## 3) L’autonomie “ne termine jamais” / impression de boucle
+Actuellement, le `AutoContinueEngine` est **instancié mais n’est pas le moteur réel** d’exécution :
+- `executePlan()` appelle `this.planExecutor.execute()` directement
+- `AutoContinueEngine.runUntilObjective()` n’est jamais utilisé ici
 
-**Fichier** : `src/lib/ai/providers/groq.ts`
+Donc l’autonomie est surtout un “journal/contrôle” mais pas un pilote décisionnel qui boucle intelligemment jusqu’au succès.
 
-Remettre les modèles dans le tableau :
-```typescript
-const GROQ_MODELS = [
-  "llama-3.3-70b-versatile",
-  "llama-3.1-8b-instant",
-] as const;
-```
+## 4) Build error TS2739 (PlanValidator.ts)
+`AGENT_CAPABILITIES` est typé comme `Record<AgentType,...>` mais `AgentType` (dans `src/lib/brain/types.ts`) contient aussi :
+- `llm`, `planner`, `search`
+
+Or `AGENT_CAPABILITIES` ne les définit pas → erreur de build.
 
 ---
 
-### Étape 2 : Créer un PlannerAgent dédié
-
-**Fichier** : `src/lib/brain/agents/PlannerAgent.ts` (nouveau)
-
-Un agent spécialisé qui :
-- Analyse les demandes complexes
-- Génère un plan structuré avec étapes et dépendances
-- Identifie les étapes parallélisables vs séquentielles
-
-```typescript
-interface PlannerParams {
-  objective: string;
-  context: {
-    systemAvailable: boolean;
-    previousAttempts?: FailedStep[];
-  };
-}
-
-interface GeneratedPlan {
-  id: string;
-  objective: string;
-  estimatedDuration: number;
-  steps: PlanStep[];
-  parallelGroups: string[][]; // Groupes d'étapes exécutables en parallèle
-}
-```
+# Principes de correction (décisions d’architecture)
+1) **Unifier le contrat d’exécution des agents** : une action doit être portée de manière cohérente.
+2) **Corriger dès le départ ET pendant l’exécution** : validation/correction initiale + correction runtime robuste.
+3) **Autonomie = boucle de contrôle réelle** : le moteur autonome doit piloter la progression (pas seulement logger).
+4) **Garde-fous anti-boucles** : limites de retries, détection de “same error repeating”, fallback deterministe, et “abort propre”.
 
 ---
 
-### Étape 3 : Étendre les types pour la planification
+# Plan d’implémentation (séquencé)
 
-**Fichier** : `src/lib/brain/types.ts`
+## Étape A — Fix build TS2739 (immédiat, incontournable)
+### A1) Choix (le plus simple et robuste)
+Modifier le typing de `AGENT_CAPABILITIES` pour ne plus exiger tous les AgentType :
+- passer de `Record<AgentType, ...>` à `Partial<Record<AgentType, ...>>`
+- ou définir explicitement des capacités pour `llm`, `planner`, `search` (même vides)
 
-Ajouter :
-```typescript
-// Nouveau type de tâche avec dépendances
-export interface PlanStep {
-  id: string;
-  action: string;
-  agent: AgentType;
-  params: Record<string, unknown>;
-  dependsOn: string[];        // IDs des étapes prérequises
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'retrying';
-  retryCount: number;
-  maxRetries: number;
-  result?: unknown;
-  error?: string;
-  startedAt?: number;
-  completedAt?: number;
-}
+Recommandation : **Partial<Record<...>>** + ajout minimal de définitions `planner/search` si réellement utilisés par le planner.
 
-export interface ExecutionPlan {
-  id: string;
-  objective: string;
-  steps: PlanStep[];
-  status: 'planning' | 'executing' | 'completed' | 'failed' | 'paused';
-  currentPhase: number;       // Phase actuelle (groupe parallèle)
-  totalPhases: number;
-  progress: number;           // 0-100
-  createdAt: number;
-  startedAt?: number;
-  completedAt?: number;
-}
+### A2) Option complémentaire (plus “propre”)
+Si `llm` n’est plus utilisé nulle part : le retirer d’`AgentType` dans `types.ts`.  
+Mais ça peut avoir des impacts ailleurs, donc on privilégie l’option A1.
 
-// Nouveau mode du cerveau
-export type BrainMode = 
-  | 'idle' | 'listening' | 'thinking' 
-  | 'planning'      // Génération du plan
-  | 'executing'     // Exécution des tâches
-  | 'observing'     // Analyse des résultats
-  | 'adapting'      // Replanification après échec
-  | 'recovering';   // Tentative de récupération d'erreur
-```
+Livrable : build OK.
 
 ---
 
-### Étape 4 : Implémenter le moteur d'exécution parallèle
+## Étape B — Unifier le contrat “action” des agents (supprime 80% des erreurs)
+### B1) Standardiser : “l’action = `task.action`”
+Modifier `UIBuilderAgent`, `FileSystemAgent`, `SystemAgent` pour utiliser :
+- `task.action` comme action principale
+- `task.params` uniquement pour les paramètres (data/path/command/etc.)
 
-**Fichier** : `src/lib/brain/PlanExecutor.ts` (nouveau)
+Exemple concret :
+- UIBuilderAgent: switch sur `task.action` (build/adapt/merge) au lieu de `task.params.action`
+- FileSystemAgent: switch sur `task.action` (read/write/list/…) au lieu de `task.params.action`
+- SystemAgent: switch sur `task.action` (exec/spawn/info) au lieu de `task.params.action`
 
-Classe qui gère l'exécution du plan :
-```typescript
-class PlanExecutor {
-  private plan: ExecutionPlan;
-  private runningTasks: Map<string, Promise<AgentResult>>;
-  
-  // Exécute les étapes par "vagues" (groupes parallèles)
-  async executeNextPhase(): Promise<PhaseResult> {
-    const readySteps = this.getReadySteps(); // Étapes sans dépendances non résolues
-    
-    // Lancer en parallèle
-    const promises = readySteps.map(step => this.executeStep(step));
-    const results = await Promise.allSettled(promises);
-    
-    return this.processPhaseResults(results);
-  }
-  
-  // Gestion des erreurs avec replanification
-  async handleStepFailure(step: PlanStep, error: string): Promise<void> {
-    if (step.retryCount < step.maxRetries) {
-      // Retry automatique
-      step.retryCount++;
-      step.status = 'retrying';
-      await this.executeStep(step);
-    } else {
-      // Demander à l'IA de corriger/adapter le plan
-      await this.requestReplan(step, error);
-    }
-  }
-}
-```
+### B2) Ajuster les types params de ces agents
+Supprimer le champ `action` dans les interfaces Params, ou le rendre optionnel (fallback), pour éviter la confusion.
+
+### B3) Patch compat (au cas où des tâches anciennes envoient encore params.action)
+Pour ne pas casser :
+- si `task.action` est vide/undefined, fallback vers `task.params.action`
+- log “legacy action format used”
+
+Livrable : plus de “Unknown action: undefined” causé par le mapping action/params.
 
 ---
 
-### Étape 5 : Intégrer la planification dans CognitiveBrain
+## Étape C — Renforcer le PlanValidator + AutoCorrector pour refléter la réalité
+### C1) Mettre `requiredParams` en cohérence avec la vraie exécution
+Après Étape B, `requiredParams` doit vérifier ce qui compte réellement :
+- FS: `path` requis pour read/list/delete/exists/search, `content` requis pour write, etc.
+- System: `command` requis pour exec/spawn
+- UIBuilder: `data` requis, `context.previousSchema` requis si action=adapt
 
-**Fichier** : `src/lib/brain/CognitiveBrain.ts`
+### C2) Auto-correction doit corriger “action + params”
+Quand on mappe une action invalide (ex: `get_current_tab` → `build`):
+- mettre à jour `step.action`
+- et adapter `step.params` si nécessaire (ex: injecter `data` vide si absent, ou context si adapt, etc.)
+- si l’action d’origine était un “intent UI” non implémentable → basculer vers `thinker.respond` (expliquer + proposer alternative) plutôt que retry inutiles.
 
-Modifications majeures :
-1. Détecter les demandes complexes → activer le mode planification
-2. Créer un plan avant d'exécuter
-3. Afficher le plan à l'utilisateur avec progression
-4. Exécuter par phases parallèles
-5. Observer les résultats et adapter
-
-```typescript
-// Dans think()
-case 'intent.message': {
-  const { content } = event.payload;
-  
-  // Analyse de complexité
-  const isComplexTask = await this.analyzeTaskComplexity(content);
-  
-  if (isComplexTask) {
-    // Mode planification
-    this.setMode('planning');
-    const plan = await this.generatePlan(content);
-    this.workingMemory.currentPlan = plan;
-    
-    // Afficher le plan
-    this.callbacks.onUISchema?.(this.createPlanPreviewSchema(plan));
-    
-    // Exécuter le plan
-    await this.executePlan(plan);
-  } else {
-    // Mode réponse simple (actuel)
-    // ...
-  }
-}
-```
+Livrable : un plan “corrigé” devient réellement exécutable.
 
 ---
 
-### Étape 6 : Créer les schémas UI pour le suivi de plan
+## Étape D — Rendre la résolution runtime déterministe et non-bloquante
+### D1) Dans `PlanExecutor.handleStepFailureIntelligently` :
+Après un `replace` / `retry` avec `newStep` :
+- re-valider le step modifié via PlanValidator (au minimum `validateStep`)
+- si toujours invalide → fallback “skip si canFail, sinon abort” (pas de boucle infinie)
 
-**Fichier** : `src/lib/brain/schemaFallbacks.ts`
+### D2) Détection “same error repeating”
+Ajouter une règle : si (même stepId + même error substring) > N fois :
+- stop retry
+- force replace/skip/abort
 
-Ajouter :
-```typescript
-// Schéma de prévisualisation du plan
-export function createPlanPreviewSchema(plan: ExecutionPlan): CognitiveUISchema {
-  return {
-    metadata: { title: `Plan: ${plan.objective}` },
-    blocks: [
-      { type: 'text', content: `Objectif: ${plan.objective}`, variant: 'heading' },
-      { type: 'progress', value: plan.progress, label: `Phase ${plan.currentPhase}/${plan.totalPhases}` },
-      // Liste des étapes avec statuts
-      ...plan.steps.map(step => ({
-        type: 'status',
-        state: step.status === 'completed' ? 'success' : 
-               step.status === 'running' ? 'loading' :
-               step.status === 'failed' ? 'error' : 'idle',
-        message: `${step.action} (${step.agent})`,
-      })),
-    ],
-  };
-}
-
-// Schéma de progression en temps réel
-export function createPlanProgressSchema(plan: ExecutionPlan, currentStep: PlanStep): CognitiveUISchema;
-
-// Schéma de résumé final
-export function createPlanCompletionSchema(plan: ExecutionPlan, results: StepResult[]): CognitiveUISchema;
-```
+Livrable : fin des boucles “retrying → failed → retrying …”.
 
 ---
 
-## Fichiers à créer/modifier
+## Étape E — Autonomie réelle : brancher AutoContinueEngine comme pilote
+Actuellement, `AutoContinueEngine` n’est pas le chef d’orchestre. Deux options :
 
-| Fichier | Action | Description |
-|---------|--------|-------------|
-| `src/lib/ai/providers/groq.ts` | Modifier | Corriger tableau GROQ_MODELS vide |
-| `src/lib/brain/types.ts` | Modifier | Ajouter types ExecutionPlan, PlanStep étendu |
-| `src/lib/brain/agents/PlannerAgent.ts` | Créer | Agent de génération de plans |
-| `src/lib/brain/PlanExecutor.ts` | Créer | Moteur d'exécution parallèle |
-| `src/lib/brain/CognitiveBrain.ts` | Modifier | Intégrer planification + exécution |
-| `src/lib/brain/schemaFallbacks.ts` | Modifier | Schémas UI pour suivi de plan |
-| `src/lib/brain/agents/index.ts` | Modifier | Exporter PlannerAgent |
-| `src/hooks/useCognitiveBrain.ts` | Modifier | Exposer état du plan à l'UI |
+### Option E1 (recommandée, minimal change) : Autonomie pilote “phase par phase”
+- Ajouter dans PlanExecutor une API “executeNextPhase() public” ou “executeOneTick()”
+- Dans CognitiveBrain.executePlan():
+  - faire une boucle pilotée par `AutoContinueEngine.runUntilObjective(...)`
+  - où `executeStep(step)` appelle PlanExecutor pour exécuter la step (ou la phase correspondante)
+  - AutoContinueEngine décide : continuer / pause / skip / confirm destructif
+
+### Option E2 : Supprimer AutoContinueEngine et intégrer ses règles dans PlanExecutor
+- PlanExecutor devient l’unique boucle d’autonomie (plus simple mentalement)
+- CognitiveBrain ne fait que configurer (max actions, guardrails, confirmations)
+
+Recommandation : **E2** à terme, mais **E1** est plus rapide à stabiliser maintenant.
+
+Livrable : l’autonomie est une vraie boucle de contrôle jusqu’à “objective reached” ou échec propre.
 
 ---
 
-## Détails techniques
+## Étape F — Focus mode et “initiative”
+Ton attente “comme Cursor” implique :
+- si une step échoue, le système doit “chercher la cause” puis “appliquer un patch”
+- pas juste retry/skip
 
-### Flux d'exécution complet
+Ce que je vais ajouter (sans surcomplexifier) :
+1) Une catégorie d’erreurs “structurelles” (invalid action, missing params) → fix déterministe (validator/corrector)
+2) Une catégorie d’erreurs “environnement” (Electron bridge absent, permission) → adaptation de plan (remplacer FS/System par Thinker + UI instructions)
+3) Une catégorie d’erreurs “fonctionnelles” (ex: commande shell échoue) → ThinkerAgent analyze + propose alternative command → replace step
 
-```text
-Utilisateur: "Crée-moi une app de chat"
-                    │
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 1. ANALYSE DE COMPLEXITÉ                                     │
-│    → Demande complexe détectée (plusieurs étapes requises)   │
-└─────────────────────────────────────────────────────────────┘
-                    │
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 2. GÉNÉRATION DU PLAN (PlannerAgent)                         │
-│    Étapes générées:                                          │
-│    ├── [1] Définir structure projet (filesystem)             │
-│    ├── [2] Créer composants UI (uiBuilder)       ─┐          │
-│    ├── [3] Configurer base de données (system)   ─┤ Parallèle│
-│    ├── [4] Ajouter auth (system)                 ─┘          │
-│    └── [5] Tester & valider (thinker) ← dépend de 2,3,4     │
-└─────────────────────────────────────────────────────────────┘
-                    │
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 3. AFFICHAGE PLAN (UI)                                       │
-│    → Schéma avec toutes les étapes et progression            │
-└─────────────────────────────────────────────────────────────┘
-                    │
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 4. EXÉCUTION PAR PHASES                                      │
-│    Phase 1: [1] Définir structure                            │
-│    Phase 2: [2,3,4] en parallèle                             │
-│    Phase 3: [5] Tests (attend que 2,3,4 soient OK)           │
-└─────────────────────────────────────────────────────────────┘
-                    │
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 5. OBSERVATION & ADAPTATION                                  │
-│    Si [3] échoue:                                            │
-│    → Retry automatique (max 2x)                              │
-│    → Si échec persistant: demander à l'IA de corriger        │
-│    → Replanifier si nécessaire                               │
-└─────────────────────────────────────────────────────────────┘
-                    │
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 6. FINALISATION                                              │
-│    → Schéma de résumé avec résultats de chaque étape         │
-│    → Actions suggérées pour continuer                        │
-└─────────────────────────────────────────────────────────────┘
-```
+Livrable : il “voit l’erreur” et agit réellement (pas uniquement logging).
 
-### Prompt du PlannerAgent
+---
 
-```typescript
-const PLANNING_SYSTEM_PROMPT = `
-Tu es un planificateur de tâches autonome. 
+# Fichiers impactés (prévision)
+- `src/lib/brain/PlanValidator.ts`
+  - Fix TS2739 (Partial<Record> ou ajout capacités llm/planner/search)
+  - Ajuster requiredParams + autocorrect “action+params”
+- `src/lib/brain/PlanExecutor.ts`
+  - Validation step après correction runtime
+  - Anti-loop + “same error repeating”
+  - (optionnel) API tick/phase pour autonomie
+- `src/lib/brain/CognitiveBrain.ts`
+  - Brancher AutoContinueEngine réellement (ou simplifier et le retirer)
+- `src/lib/brain/agents/UIBuilderAgent.ts`
+  - Switch sur `task.action` (+ fallback legacy)
+- `src/lib/brain/agents/FileSystemAgent.ts`
+  - Switch sur `task.action` (+ fallback legacy)
+- `src/lib/brain/agents/SystemAgent.ts`
+  - Switch sur `task.action` (+ fallback legacy)
+- (optionnel) `src/lib/brain/types.ts`
+  - clarifier AgentType si besoin (mais éviter si possible)
 
-RÈGLES:
-1. Décompose l'objectif en étapes ATOMIQUES et VÉRIFIABLES
-2. Identifie les DÉPENDANCES entre étapes
-3. Maximise le PARALLÉLISME (étapes indépendantes = même phase)
-4. Prévoie des FALLBACKS pour chaque étape critique
-5. Estime la durée de chaque étape
+---
 
-AGENTS DISPONIBLES:
-- thinker: Raisonnement, analyse, génération de contenu
-- filesystem: Lecture/écriture fichiers, navigation
-- system: Commandes shell, installations, processus
-- uiBuilder: Construction interfaces dynamiques
-- search: Recherche textuelle, indexation
+# Critères d’acceptation (tests concrets à faire après)
+1) Un plan contenant une step uiBuilder “get_current_tab” ne produit plus “Unknown action: undefined” :
+   - soit corrigé en “build”
+   - soit remplacé par thinker step si non applicable
+2) Si une step est invalidable, elle est corrigée avant exécution (validateAndCorrectPlan), ET si elle se modifie runtime elle est re-validée.
+3) Autonomie : sur une commande complexe, le cerveau enchaîne sans clics et termine :
+   - succès total, ou
+   - échec propre (abort) avec résumé clair et journal exploitable
+4) Aucune boucle infinie de retry sur la même erreur.
 
-FORMAT JSON STRICT:
-{
-  "objective": "Description claire",
-  "steps": [
-    {
-      "id": "step_1",
-      "action": "create_project_structure",
-      "agent": "filesystem",
-      "description": "Créer la structure de dossiers",
-      "params": { "path": "/project", "template": "chat-app" },
-      "dependsOn": [],
-      "estimatedDuration": 5000,
-      "canFail": false,
-      "fallback": { "action": "...", "params": {...} }
-    }
-  ],
-  "parallelGroups": [
-    ["step_1"],
-    ["step_2", "step_3", "step_4"],
-    ["step_5"]
-  ]
-}
-`;
-```
+---
 
-### Configuration de planification
+# Risques / points d’attention
+- Cette correction change un contrat implicite “action dans params” : on maintiendra un fallback pour compat.
+- Si Electron bridge est souvent indisponible (web), l’autonomie doit apprendre à “adapter” (ne pas planifier du filesystem/system si non dispo).
+  - On ajoutera un “environmentInfo.systemAvailable/isElectron” au prompt du planner (si pas déjà).
 
-```typescript
-const PLAN_CONFIG = {
-  maxStepsPerPlan: 10,
-  maxParallelTasks: 4,
-  defaultStepTimeout: 30000,
-  maxRetryPerStep: 2,
-  replanThreshold: 0.5, // Si >50% des étapes échouent, replanifier
-  complexityThreshold: 3, // Nombre de "verbes d'action" pour considérer complexe
-};
-```
