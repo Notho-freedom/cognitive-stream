@@ -63,6 +63,17 @@ interface CognitiveBrainState {
 export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
   // Brain instance (singleton per hook instance)
   const brainRef = useRef<CognitiveBrain | null>(null);
+
+  const updateAutonomyStats = useCallback(() => {
+    if (!brainRef.current) return;
+    const stats = brainRef.current.getAutonomyStats();
+    setState(prev => ({
+      ...prev,
+      isAutonomousMode: stats.isActive,
+      autonomyActionCount: stats.actionCount,
+      autonomyLimit: stats.limit,
+    }));
+  }, []);
   
   const [state, setState] = useState<CognitiveBrainState>({
     messages: [],
@@ -220,6 +231,7 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
         ...prev,
         autonomyLog: [...prev.autonomyLog.slice(-100), entry],
       }));
+      updateAutonomyStats();
     },
     
     onAutonomyPause: (reason: string) => {
@@ -228,6 +240,7 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
         isAutonomousMode: false,
       }));
       notify(`Autonomie en pause: ${reason}`, 'warning', 'high');
+      updateAutonomyStats();
     },
     
     onAutonomyResume: () => {
@@ -236,6 +249,7 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
         isAutonomousMode: true,
       }));
       notify('Mode autonome repris', 'info', 'medium');
+      updateAutonomyStats();
     },
     
     onConfirmDestructive: async (action: string, description: string): Promise<boolean> => {
@@ -250,7 +264,7 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
       notify(`Question en attente: ${question}`, 'info', 'medium');
       return '';
     },
-  }), [notify]);
+  }), [notify, updateAutonomyStats]);
 
   // Initialize brain on mount
   useEffect(() => {
@@ -273,12 +287,13 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
       }
       
       console.log('[useCognitiveBrain] Brain initialized');
+      updateAutonomyStats();
     }
     
     return () => {
       // Cleanup if needed
     };
-  }, [callbacks]);
+  }, [callbacks, updateAutonomyStats]);
 
   // ──────────────────────────────────────────────────────────────
   // PUBLIC API
@@ -460,9 +475,24 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
 
   const setAutonomyConfig = useCallback((config: Partial<AutonomyConfig>) => {
     if (brainRef.current) {
-      brainRef.current.setAutonomyConfig(config);
+      const currentConfig = brainRef.current.getAutonomyConfig();
+      const mergedConfig: AutonomyConfig = {
+        ...currentConfig,
+        ...config,
+        triggers: config.triggers
+          ? { ...currentConfig.triggers, ...config.triggers }
+          : currentConfig.triggers,
+        safeguards: config.safeguards
+          ? { ...currentConfig.safeguards, ...config.safeguards }
+          : currentConfig.safeguards,
+        timeouts: config.timeouts
+          ? { ...currentConfig.timeouts, ...config.timeouts }
+          : currentConfig.timeouts,
+      };
+      brainRef.current.setAutonomyConfig(mergedConfig);
+      updateAutonomyStats();
     }
-  }, []);
+  }, [updateAutonomyStats]);
 
   // ──────────────────────────────────────────────────────────────
   // RETURN
