@@ -14,10 +14,19 @@ import type {
 import type { Agent, AgentResult, AgentType, CognitiveTask } from './types';
 import { generateId, createTask } from './types';
 import { PLAN_CONFIG } from './agents/PlannerAgent';
+import { PlanValidator, categorizeError, type CategorizedError } from './PlanValidator';
 
 // ──────────────────────────────────────────────────────────────
 // PLAN EXECUTOR CLASS
 // ──────────────────────────────────────────────────────────────
+
+// Track errors per step to detect infinite loops
+interface ErrorTracker {
+  stepId: string;
+  errorSignature: string;
+  count: number;
+  lastOccurrence: number;
+}
 
 export class PlanExecutor {
   private plan: ExecutionPlan;
@@ -25,13 +34,28 @@ export class PlanExecutor {
   private callbacks: Partial<PlanExecutorCallbacks>;
   private runningTasks: Map<string, Promise<AgentResult>> = new Map();
   private aborted = false;
+  
+  // Anti-loop detection
+  private errorTrackers: Map<string, ErrorTracker> = new Map();
+  private static readonly MAX_SAME_ERROR_COUNT = 3;
+  
+  // Plan validator for auto-correction
+  private validator: PlanValidator;
 
   constructor(
     plan: ExecutionPlan,
     agents: Map<AgentType, Agent>,
     callbacks: Partial<PlanExecutorCallbacks> = {}
   ) {
-    this.plan = plan;
+    // Validate and auto-correct the plan upfront
+    this.validator = new PlanValidator();
+    const { plan: correctedPlan, correctionsMade } = this.validator.validateAndCorrectPlan(plan);
+    
+    if (correctionsMade > 0) {
+      console.log(`[PlanExecutor] Auto-corrected ${correctionsMade} step(s) during initialization`);
+    }
+    
+    this.plan = correctedPlan;
     this.agents = agents;
     this.callbacks = callbacks;
   }
@@ -247,6 +271,70 @@ export class PlanExecutor {
   ): Promise<void> {
     step.error = error;
     
+    // Categorize the error for intelligent handling
+    const categorized = categorizeError(error, step.agent, step.action);
+    
+    // Check for infinite loop (same error repeating)
+    const errorKey = `${step.id}:${this.getErrorSignature(error)}`;
+    const tracker = this.errorTrackers.get(errorKey) || {
+      stepId: step.id,
+      errorSignature: this.getErrorSignature(error),
+      count: 0,
+      lastOccurrence: 0,
+    };
+    
+    tracker.count++;
+    tracker.lastOccurrence = Date.now();
+    this.errorTrackers.set(errorKey, tracker);
+    
+    // If same error repeats too many times, force skip/abort
+    if (tracker.count >= PlanExecutor.MAX_SAME_ERROR_COUNT) {
+      console.warn(`[PlanExecutor] Same error repeated ${tracker.count} times for step ${step.id}, forcing resolution`);
+      
+      if (step.canFail) {
+        step.status = 'skipped';
+        step.error = `Skipped after ${tracker.count} identical errors: ${error}`;
+        this.callbacks.onStepUpdate?.(step);
+        this.emitEvent('step.failed', { stepId: step.id, error: step.error, skipped: true });
+        return;
+      } else {
+        step.status = 'failed';
+        step.completedAt = Date.now();
+        this.callbacks.onStepUpdate?.(step);
+        this.emitEvent('step.failed', { stepId: step.id, error: `Abort: ${error}`, critical: true });
+        this.callbacks.onError?.(error, step);
+        return;
+      }
+    }
+    
+    // Try intelligent correction based on error category
+    if (categorized.suggestedAction === 'correct_step' && step.retryCount < step.maxRetries) {
+      const corrected = this.validator.correctStep(step);
+      if (corrected && corrected.action !== step.action) {
+        console.log(`[PlanExecutor] Correcting step ${step.id}: ${step.action} → ${corrected.action}`);
+        
+        // Apply correction to the step in the plan
+        Object.assign(step, corrected);
+        step.retryCount++;
+        step.status = 'retrying';
+        this.callbacks.onStepUpdate?.(step);
+        this.emitEvent('step.retrying', { stepId: step.id, attempt: step.retryCount, corrected: true });
+        
+        // Wait before retry
+        await new Promise(r => setTimeout(r, 300));
+        
+        // Re-execute with corrected step
+        if (agent || this.agents.has(corrected.agent)) {
+          const targetAgent = this.agents.get(corrected.agent);
+          if (targetAgent) {
+            const retryResult = await this.executeStep(step);
+            if (retryResult.success) return;
+          }
+        }
+      }
+    }
+    
+    // Standard retry logic
     if (step.retryCount < step.maxRetries) {
       // Retry
       step.retryCount++;
@@ -275,6 +363,19 @@ export class PlanExecutor {
     if (step.fallback && step.canFail) {
       await this.executeFallback(step);
     }
+  }
+  
+  /**
+   * Get a normalized error signature for loop detection
+   */
+  private getErrorSignature(error: string): string {
+    // Normalize the error to detect repeated identical errors
+    return error
+      .toLowerCase()
+      .replace(/\d+/g, 'N') // Replace numbers with N
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim()
+      .slice(0, 100); // Limit length
   }
 
   private async executeFallback(step: PlanStep): Promise<void> {
