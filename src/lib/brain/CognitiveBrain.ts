@@ -895,6 +895,13 @@ export class CognitiveBrain {
         this.autonomyJournal.logDecision('Action destructrice bloquée (pas de callback)', { action });
         return false;
       },
+
+      onQuestion: async (question) => {
+        if (this.callbacks.onAskQuestion) {
+          return await this.callbacks.onAskQuestion(question);
+        }
+        return '';
+      },
       
       onObjectiveReached: (summary) => {
         this.autonomyJournal.logDecision('Objectif atteint', { summary });
