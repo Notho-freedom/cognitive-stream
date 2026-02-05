@@ -33,6 +33,8 @@ interface CognitiveBrainState {
   isStreaming: boolean;
   error: string | null;
   pendingAction: ActionPayload | null;
+  pendingConfirmation: { action: string; description: string } | null;
+  pendingQuestion: { question: string } | null;
   
   // Brain-specific state
   mentalState: MentalState | null;
@@ -63,6 +65,8 @@ interface CognitiveBrainState {
 export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
   // Brain instance (singleton per hook instance)
   const brainRef = useRef<CognitiveBrain | null>(null);
+  const pendingConfirmationResolverRef = useRef<((value: boolean) => void) | null>(null);
+  const pendingQuestionResolverRef = useRef<((value: string) => void) | null>(null);
   
   const [state, setState] = useState<CognitiveBrainState>({
     messages: [],
@@ -73,6 +77,8 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     isStreaming: false,
     error: null,
     pendingAction: null,
+    pendingConfirmation: null,
+    pendingQuestion: null,
     mentalState: null,
     currentThought: null,
     activeTasks: [],
@@ -239,16 +245,29 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     },
     
     onConfirmDestructive: async (action: string, description: string): Promise<boolean> => {
-      // Pour l'instant, afficher une notification et retourner false
-      // TODO: Implémenter un dialog de confirmation
-      notify(`Action destructrice bloquée: ${action}`, 'warning', 'high');
-      return false;
+      return new Promise(resolve => {
+        if (pendingConfirmationResolverRef.current) {
+          pendingConfirmationResolverRef.current(false);
+        }
+        pendingConfirmationResolverRef.current = resolve;
+        setState(prev => ({
+          ...prev,
+          pendingConfirmation: { action, description },
+        }));
+      });
     },
     
     onAskQuestion: async (question: string): Promise<string> => {
-      // TODO: Implémenter un dialog de question
-      notify(`Question en attente: ${question}`, 'info', 'medium');
-      return '';
+      return new Promise(resolve => {
+        if (pendingQuestionResolverRef.current) {
+          pendingQuestionResolverRef.current('');
+        }
+        pendingQuestionResolverRef.current = resolve;
+        setState(prev => ({
+          ...prev,
+          pendingQuestion: { question },
+        }));
+      });
     },
   }), [notify]);
 
@@ -412,6 +431,28 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     }));
   }, [state.pendingAction, sendMessage]);
 
+  const respondToConfirmation = useCallback((confirmed: boolean) => {
+    if (pendingConfirmationResolverRef.current) {
+      pendingConfirmationResolverRef.current(confirmed);
+      pendingConfirmationResolverRef.current = null;
+    }
+    setState(prev => ({
+      ...prev,
+      pendingConfirmation: null,
+    }));
+  }, []);
+
+  const respondToQuestion = useCallback((answer: string) => {
+    if (pendingQuestionResolverRef.current) {
+      pendingQuestionResolverRef.current(answer);
+      pendingQuestionResolverRef.current = null;
+    }
+    setState(prev => ({
+      ...prev,
+      pendingQuestion: null,
+    }));
+  }, []);
+
   const reset = useCallback(() => {
     if (brainRef.current) {
       brainRef.current.reset();
@@ -426,6 +467,8 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
       isStreaming: false,
       error: null,
       pendingAction: null,
+      pendingConfirmation: null,
+      pendingQuestion: null,
       mentalState: null,
       currentThought: null,
       activeTasks: [],
@@ -478,6 +521,8 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     isStreaming: state.isStreaming,
     error: state.error,
     pendingAction: state.pendingAction,
+    pendingConfirmation: state.pendingConfirmation,
+    pendingQuestion: state.pendingQuestion,
     
     // Brain-specific
     mentalState: state.mentalState,
@@ -504,6 +549,8 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     sendMessage,
     handleAction,
     confirmAction,
+    respondToConfirmation,
+    respondToQuestion,
     reset,
     
     // Autonomy controls
