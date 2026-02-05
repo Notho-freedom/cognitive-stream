@@ -27,6 +27,7 @@ export interface PlanStep {
   dependsOn: string[];
   estimatedDuration: number;
   canFail: boolean;
+  isCritical: boolean;
   fallback: { action: string; agent: string } | null;
   
   // État d'exécution
