@@ -6,6 +6,7 @@ import { ThoughtStream } from './ThoughtStream';
 import { CognitiveRenderer } from './dynamic/CognitiveRenderer';
 import { AutonomyConfirmDialog } from './AutonomyConfirmDialog';
 import { AutonomyQuestionDialog } from './AutonomyQuestionDialog';
+import { AutonomyControls } from './AutonomyControls';
 import { useCognitiveBrain } from '@/hooks/useCognitiveBrain';
 import { useNotifications } from './NotificationQueue';
 import { useCognitiveEdgeTTS } from '@/hooks/useCognitiveEdgeTTS';
@@ -53,6 +54,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
   const { push: notifyPush } = useNotifications();
   
   // === UTILISATION DU CERVEAU COGNITIF ===
+  const brain = useCognitiveBrain(notifyPush);
   const { 
     messages, 
     schema, 
@@ -74,7 +76,7 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
     respondToConfirmation,
     respondToQuestion,
     reset 
-  } = useCognitiveBrain(notifyPush);
+  } = brain;
 
   // === TTS INTEGRATION ===
   const tts = useCognitiveEdgeTTS({
@@ -242,6 +244,9 @@ export function CognitiveInterface({ className }: CognitiveInterfaceProps) {
         onCancel={() => respondToQuestion('')}
         onSubmit={respondToQuestion}
       />
+      <div className="mb-6">
+        <AutonomyControls brain={brain} />
+      </div>
 
       {/* Page d'accueil avant première interaction */}
       <AnimatePresence mode="wait">
