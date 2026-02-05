@@ -17,6 +17,10 @@ export interface SystemActionResult {
   timestamp: number;
 }
 
+const BACKEND_ACTION_URL = import.meta.env.VITE_SUPABASE_URL
+  ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/system-actions`
+  : '';
+
 /**
  * Parse une demande utilisateur pour extraire les actions système
  * Format: ```system:exec\n<command>\n```
@@ -70,13 +74,58 @@ export async function executeSystemAction(action: SystemAction): Promise<SystemA
   const startTime = Date.now();
   
   if (!window.cognitiveBridge) {
-    return {
-      success: false,
-      action,
-      result: { error: 'System bridge not available' },
-      duration: 0,
-      timestamp: startTime,
-    };
+    if (!BACKEND_ACTION_URL) {
+      return {
+        success: false,
+        action,
+        result: { error: 'System bridge not available and backend is not configured' },
+        duration: 0,
+        timestamp: startTime,
+      };
+    }
+
+    try {
+      const response = await fetch(BACKEND_ACTION_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? ''}`,
+        },
+        body: JSON.stringify({ action }),
+      });
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        return {
+          success: false,
+          action,
+          result: { error: payload?.error ?? 'Backend request failed' },
+          duration: Date.now() - startTime,
+          timestamp: startTime,
+        };
+      }
+
+      if (payload && typeof payload === 'object' && 'action' in payload) {
+        return payload as SystemActionResult;
+      }
+
+      return {
+        success: false,
+        action,
+        result: { error: 'Unexpected backend response' },
+        duration: Date.now() - startTime,
+        timestamp: startTime,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        action,
+        result: { error: error instanceof Error ? error.message : 'Unknown error' },
+        duration: Date.now() - startTime,
+        timestamp: startTime,
+      };
+    }
   }
   
   try {
