@@ -10,7 +10,7 @@ import type { Agent, AgentResult, CognitiveTask } from '../types';
 // ──────────────────────────────────────────────────────────────
 
 interface SystemParams {
-  action: 'exec' | 'spawn' | 'info';
+  action?: 'exec' | 'spawn' | 'info'; // Optional - prefer task.action
   command?: string;
   args?: string[];
   options?: {
@@ -55,7 +55,23 @@ export class SystemAgent implements Agent<SystemParams, SystemResult> {
 
   async execute(task: CognitiveTask<SystemParams, SystemResult>): Promise<AgentResult<SystemResult>> {
     const startTime = Date.now();
-    const { action, command, args, options } = task.params;
+    const { command, args, options } = task.params;
+    
+    // UNIFIED ACTION CONTRACT: use task.action first, fallback to params.action for legacy
+    const action = (task.action as SystemParams['action']) || task.params.action;
+    
+    if (!action) {
+      return {
+        success: false,
+        error: 'No action specified for SystemAgent',
+        duration: Date.now() - startTime,
+      };
+    }
+    
+    // Log legacy usage for debugging
+    if (task.params.action && !task.action) {
+      console.warn('[SystemAgent] Legacy action format used (params.action). Migrate to task.action.');
+    }
 
     if (!window.cognitiveBridge) {
       return {
