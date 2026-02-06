@@ -6,10 +6,19 @@ import {
   LoadingScreen,
 } from '@/components/cognitive';
 import { CogStatusBridge } from '@/components/cognitive/CogStatusBridge';
+import { DesktopWidgetShell } from '@/components/desktop/DesktopWidgetShell';
+import { useElectronMode } from '@/hooks/useElectronMode';
 
 export default function Index() {
   const [isLoading, setIsLoading] = useState(true);
+  const { isElectron } = useElectronMode();
 
+  // En mode Electron → widgets de bureau, pas de loading screen traditionnelle
+  if (isElectron) {
+    return <DesktopWidgetShell />;
+  }
+
+  // Mode web classique
   if (isLoading) {
     return <LoadingScreen onComplete={() => setIsLoading(false)} />;
   }
