@@ -152,6 +152,16 @@
     min-height: 100vh;
   }
 
+  /* Electron desktop widget mode — fond transparent, pas de background */
+  html.electron-mode body {
+    background: transparent !important;
+    min-height: 100vh;
+  }
+
+  html.electron-mode body::before {
+    display: none !important;
+  }
+
   /* Subtle noise texture overlay */
   body::before {
     content: '';

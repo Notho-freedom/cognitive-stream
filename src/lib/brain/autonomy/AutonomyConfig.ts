@@ -15,18 +15,18 @@ export interface AutonomyConfig {
   
   // Déclencheurs automatiques
   triggers: {
-    autoContinue: boolean;      // Enchaîner automatiquement les étapes
-    minimalQuestions: boolean;  // Ne poser que les questions essentielles
-    autoFixErrors: boolean;     // Tenter de corriger les erreurs seul
-    autoPlan: boolean;          // Proposer des plans proactivement
+    autoContinue: boolean;
+    minimalQuestions: boolean;
+    autoFixErrors: boolean;
+    autoPlan: boolean;
   };
   
   // Garde-fous de sécurité
   safeguards: {
-    confirmDestructive: boolean;  // Confirmer les actions destructrices
-    maxAutoActions: number;       // Limite d'actions auto avant pause
-    focusMode: boolean;           // Rester dans le périmètre de l'objectif
-    enableJournal: boolean;       // Logger toutes les actions auto
+    confirmDestructive: boolean;
+    maxAutoActions: number;
+    focusMode: boolean;
+    enableJournal: boolean;
   };
   
   // Périmètre d'action
@@ -34,10 +34,19 @@ export interface AutonomyConfig {
   
   // Timeouts
   timeouts: {
-    stepTimeout: number;          // Timeout par étape (ms)
-    totalPlanTimeout: number;     // Timeout total pour un plan (ms)
-    pauseOnInactivity: number;    // Pause après inactivité (ms)
+    stepTimeout: number;
+    totalPlanTimeout: number;
+    pauseOnInactivity: number;
   };
+}
+
+// Deep partial pour les mises à jour partielles depuis l'UI
+export interface PartialAutonomyConfig {
+  level?: AutonomyLevel;
+  triggers?: Partial<AutonomyConfig['triggers']>;
+  safeguards?: Partial<AutonomyConfig['safeguards']>;
+  scope?: AutonomyConfig['scope'];
+  timeouts?: Partial<AutonomyConfig['timeouts']>;
 }
 
 // ──────────────────────────────────────────────────────────────

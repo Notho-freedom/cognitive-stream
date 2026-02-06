@@ -11,6 +11,7 @@ import type {
   CognitiveTask, 
   CognitiveEvent,
   Message,
+  PartialAutonomyConfig,
   AutonomyConfig,
 } from '@/lib/brain';
 import type { ExtendedBrainCallbacks } from '@/lib/brain/CognitiveBrain';
@@ -516,7 +517,7 @@ export function useCognitiveBrain(notificationPush?: NotificationPushFn) {
     }
   }, []);
 
-  const setAutonomyConfig = useCallback((config: Partial<AutonomyConfig>) => {
+  const setAutonomyConfig = useCallback((config: PartialAutonomyConfig) => {
     if (brainRef.current) {
       const currentConfig = brainRef.current.getAutonomyConfig();
       const mergedConfig: AutonomyConfig = {
