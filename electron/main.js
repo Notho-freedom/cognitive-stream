@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const fs = require('fs');
@@ -10,11 +10,21 @@ let mainWindow;
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 function createWindow() {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+
   mainWindow = new BrowserWindow({
-    fullscreen: true,
-    frame: false, // Frameless for GX aesthetic
+    width,
+    height,
+    x: 0,
+    y: 0,
+    frame: false,
     transparent: true,
     backgroundColor: '#00000000',
+    hasShadow: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -24,10 +34,13 @@ function createWindow() {
     vibrancy: 'ultra-dark',
   });
 
+  // Enable click-through on transparent areas
+  mainWindow.setIgnoreMouseEvents(true, { forward: true });
+
   // Load the app
   if (isDev) {
     mainWindow.loadURL('http://localhost:8080?time=' + new Date().getTime());
-    mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
@@ -52,6 +65,24 @@ app.on('activate', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// WIDGET MOUSE PASSTHROUGH - Desktop widget click-through
+// ═══════════════════════════════════════════════════════════════
+
+ipcMain.on('widget:mouse-enter', () => {
+  mainWindow?.setIgnoreMouseEvents(false);
+});
+
+ipcMain.on('widget:mouse-leave', () => {
+  mainWindow?.setIgnoreMouseEvents(true, { forward: true });
+});
+
+// Toggle always on top
+ipcMain.handle('widget:set-always-on-top', (event, value) => {
+  mainWindow?.setAlwaysOnTop(value);
+  return { success: true, alwaysOnTop: value };
+});
+
+// ═══════════════════════════════════════════════════════════════
 // IPC HANDLERS - System Interaction Bridge
 // ═══════════════════════════════════════════════════════════════
 
@@ -63,7 +94,7 @@ ipcMain.handle('system:exec', async (event, command, options = {}) => {
     exec(command, {
       cwd: options.cwd || os.homedir(),
       timeout: options.timeout || 30000,
-      maxBuffer: 1024 * 1024 * 10, // 10MB
+      maxBuffer: 1024 * 1024 * 10,
       shell: process.platform === 'win32' ? 'powershell.exe' : '/bin/bash',
     }, (error, stdout, stderr) => {
       resolve({
@@ -92,7 +123,6 @@ ipcMain.handle('system:spawn', async (event, command, args = [], options = {}) =
 
     child.stdout.on('data', (data) => {
       stdout += data.toString();
-      // Stream output back to renderer
       mainWindow?.webContents.send('system:output', {
         type: 'stdout',
         data: data.toString(),
@@ -165,7 +195,6 @@ ipcMain.handle('fs:write', async (event, filePath, content) => {
       ? path.join(os.homedir(), filePath.slice(1))
       : filePath;
     
-    // Ensure directory exists
     const dir = path.dirname(resolvedPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -214,7 +243,6 @@ ipcMain.handle('fs:list', async (event, dirPath, options = {}) => {
       };
     });
     
-    // Filter and sort
     const filtered = options.showHidden 
       ? items 
       : items.filter(i => !i.name.startsWith('.'));

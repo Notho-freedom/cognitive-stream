@@ -19,7 +19,7 @@ export {
   isDestructiveAction,
   DESTRUCTIVE_ACTIONS,
 } from './autonomy';
-export type { AutonomyConfig, AutonomyLevel, AutonomyLogEntry } from './autonomy';
+export type { AutonomyConfig, AutonomyLevel, AutonomyLogEntry, PartialAutonomyConfig } from './autonomy';
 export { AutoContinueEngine } from './autonomy/AutoContinueEngine';
 export type { ContinueDecision, AutoContinueCallbacks } from './autonomy/AutoContinueEngine';
 
