@@ -96,13 +96,14 @@ function DesktopWidgetShellInner() {
     prevErrorRef.current = error;
   }, [error, playSound, floatingCards]);
 
-  // React to thought changes → push thought card (if substantial)
+  // React to thought changes → notify instead of rendering cards
   useEffect(() => {
     if (thought && thought !== prevThoughtRef.current && thought.length > 20) {
-      floatingCards.pushThought(thought);
+      const clipped = thought.length > 160 ? `${thought.slice(0, 160)}…` : thought;
+      notifyPush({ message: clipped, priority: 'low' });
     }
     prevThoughtRef.current = thought;
-  }, [thought, floatingCards]);
+  }, [thought, notifyPush]);
 
   // Sound when loading starts
   useEffect(() => {
@@ -172,22 +173,20 @@ function DesktopWidgetShellInner() {
       />
 
       {/* Floating Response Cards — centre de l'écran */}
-      <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-40">
-        <div className="flex flex-col items-center gap-3">
-          <AnimatePresence mode="popLayout">
-            {floatingCards.cards.map((card, index) => (
-              <FloatingResponseCard
-                key={card.id}
-                card={card}
-                index={index}
-                total={floatingCards.cards.length}
-                onDismiss={handleDismiss}
-                onAction={handleCardAction}
-                onMouseStateChange={handleMouseState}
-              />
-            ))}
-          </AnimatePresence>
-        </div>
+      <div className="fixed inset-0 pointer-events-none z-40">
+        <AnimatePresence mode="popLayout">
+          {floatingCards.cards.map((card) => (
+            <FloatingResponseCard
+              key={card.id}
+              card={card}
+              onDismiss={handleDismiss}
+              onAction={handleCardAction}
+              onPositionChange={(id, position) => floatingCards.updateCard(id, { position })}
+              onBringToFront={floatingCards.bringToFront}
+              onMouseStateChange={handleMouseState}
+            />
+          ))}
+        </AnimatePresence>
       </div>
 
       {/* Command Bar — bas-centre */}
