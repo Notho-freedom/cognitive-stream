@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect, useRef, useCallback } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import {
   NotificationProvider,
@@ -7,10 +7,13 @@ import {
 import { useNotifications } from '@/components/cognitive/NotificationQueue';
 import { useCognitiveBrain } from '@/hooks/useCognitiveBrain';
 import { useCognitiveEdgeTTS } from '@/hooks/useCognitiveEdgeTTS';
+import { useSoundEffects } from '@/hooks/useSoundEffects';
+import { useFloatingCards } from '@/hooks/useFloatingCards';
 import { AutonomyConfirmDialog } from '@/components/cognitive/AutonomyConfirmDialog';
 import { AutonomyQuestionDialog } from '@/components/cognitive/AutonomyQuestionDialog';
-import { CommandWidget } from './CommandWidget';
-import { StatusWidget } from './StatusWidget';
+import { BridgeIndicator } from './BridgeIndicator';
+import { DesktopCommandBar } from './DesktopCommandBar';
+import { FloatingResponseCard } from './FloatingResponseCard';
 
 // Mapping des modes du cerveau
 const brainModeLabels: Record<string, string> = {
@@ -24,12 +27,16 @@ const brainModeLabels: Record<string, string> = {
 };
 
 /**
- * DesktopWidgetShell — Conteneur principal du mode widgets Electron
- * Fond transparent, widgets flottants draggables, click-through sur le bureau
+ * DesktopWidgetShell — Layout de widgets bureau
+ * - BridgeIndicator en haut-gauche
+ * - Cartes flottantes au centre
+ * - Barre de commande en bas-centre
  */
 function DesktopWidgetShellInner() {
   const { push: notifyPush } = useNotifications();
   const brain = useCognitiveBrain(notifyPush);
+  const { play: playSound } = useSoundEffects();
+  const floatingCards = useFloatingCards();
 
   const {
     messages,
@@ -65,6 +72,64 @@ function DesktopWidgetShellInner() {
     return brainModeLabels[mentalState.mode] || mentalState.mode.toUpperCase();
   }, [mentalState]);
 
+  // Track previous states to detect transitions
+  const prevSchemaRef = useRef(schema);
+  const prevErrorRef = useRef(error);
+  const prevThoughtRef = useRef(thought);
+  const prevIsLoadingRef = useRef(isLoading);
+
+  // React to schema changes → push floating card
+  useEffect(() => {
+    if (schema && schema !== prevSchemaRef.current) {
+      playSound('cardAppear');
+      floatingCards.pushSchema(schema);
+    }
+    prevSchemaRef.current = schema;
+  }, [schema, playSound, floatingCards]);
+
+  // React to errors → push error card
+  useEffect(() => {
+    if (error && error !== prevErrorRef.current) {
+      playSound('error');
+      floatingCards.pushError(error);
+    }
+    prevErrorRef.current = error;
+  }, [error, playSound, floatingCards]);
+
+  // React to thought changes → push thought card (if substantial)
+  useEffect(() => {
+    if (thought && thought !== prevThoughtRef.current && thought.length > 20) {
+      floatingCards.pushThought(thought);
+    }
+    prevThoughtRef.current = thought;
+  }, [thought, floatingCards]);
+
+  // Sound when loading starts
+  useEffect(() => {
+    if (isLoading && !prevIsLoadingRef.current) {
+      playSound('thinking');
+    }
+    prevIsLoadingRef.current = isLoading;
+  }, [isLoading, playSound]);
+
+  // Wrapped sendMessage with sound
+  const handleSend = useCallback((msg: string) => {
+    playSound('send');
+    sendMessage(msg);
+  }, [playSound, sendMessage]);
+
+  // Wrapped action with sound
+  const handleCardAction = useCallback((action: Parameters<typeof handleAction>[0]) => {
+    playSound('action');
+    handleAction(action);
+  }, [playSound, handleAction]);
+
+  // Wrapped dismiss with sound
+  const handleDismiss = useCallback((id: string) => {
+    playSound('cardDismiss');
+    floatingCards.dismissCard(id);
+  }, [playSound, floatingCards]);
+
   // Click-through pour Electron
   const handleMouseState = (inside: boolean) => {
     const bridge = (window as any).cognitiveBridge;
@@ -96,8 +161,8 @@ function DesktopWidgetShellInner() {
       {/* Notifications */}
       <NotificationQueue position="top-right" />
 
-      {/* Widget Status (coin haut-droit) */}
-      <StatusWidget
+      {/* Bridge Indicator — coin supérieur gauche */}
+      <BridgeIndicator
         brainMode={brainMode}
         isAutonomous={isAutonomousMode}
         autonomyCount={autonomyActionCount}
@@ -106,13 +171,29 @@ function DesktopWidgetShellInner() {
         onMouseStateChange={handleMouseState}
       />
 
-      {/* Widget Command (bas-centre) */}
-      <CommandWidget
-        onSend={(msg) => sendMessage(msg)}
-        onAction={handleAction}
+      {/* Floating Response Cards — centre de l'écran */}
+      <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-40">
+        <div className="flex flex-col items-center gap-3">
+          <AnimatePresence mode="popLayout">
+            {floatingCards.cards.map((card, index) => (
+              <FloatingResponseCard
+                key={card.id}
+                card={card}
+                index={index}
+                total={floatingCards.cards.length}
+                onDismiss={handleDismiss}
+                onAction={handleCardAction}
+                onMouseStateChange={handleMouseState}
+              />
+            ))}
+          </AnimatePresence>
+        </div>
+      </div>
+
+      {/* Command Bar — bas-centre */}
+      <DesktopCommandBar
+        onSend={handleSend}
         onConfirmAction={confirmAction}
-        schema={schema}
-        thought={thought}
         isLoading={isLoading}
         isStreaming={isStreaming}
         error={error}
@@ -123,7 +204,6 @@ function DesktopWidgetShellInner() {
         brainMode={brainMode}
         messageCount={messages.length}
         onMouseStateChange={handleMouseState}
-        onReset={reset}
       />
     </>
   );
