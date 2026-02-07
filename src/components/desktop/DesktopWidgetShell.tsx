@@ -28,7 +28,7 @@ const brainModeLabels: Record<string, string> = {
 
 /**
  * DesktopWidgetShell — Layout de widgets bureau
- * - BridgeIndicator en haut-gauche
+ * - BridgeIndicator en bas-droit
  * - Cartes flottantes au centre
  * - Barre de commande en bas-centre
  */
@@ -37,6 +37,7 @@ function DesktopWidgetShellInner() {
   const brain = useCognitiveBrain(notifyPush);
   const { play: playSound } = useSoundEffects();
   const floatingCards = useFloatingCards();
+  const activeSchemaCardIdRef = useRef<string | null>(null);
 
   const {
     messages,
@@ -77,12 +78,37 @@ function DesktopWidgetShellInner() {
   const prevErrorRef = useRef(error);
   const prevThoughtRef = useRef(thought);
   const prevIsLoadingRef = useRef(isLoading);
+  const prevUserMessageCountRef = useRef(0);
+
+  const userMessageCount = useMemo(
+    () => messages.filter(message => message.role === 'user').length,
+    [messages],
+  );
+
+  useEffect(() => {
+    if (userMessageCount > prevUserMessageCountRef.current) {
+      activeSchemaCardIdRef.current = null;
+    }
+    prevUserMessageCountRef.current = userMessageCount;
+  }, [userMessageCount]);
 
   // React to schema changes → push floating card
   useEffect(() => {
     if (schema && schema !== prevSchemaRef.current) {
-      playSound('cardAppear');
-      floatingCards.pushSchema(schema);
+      if (activeSchemaCardIdRef.current) {
+        floatingCards.updateCard(activeSchemaCardIdRef.current, {
+          type: 'response',
+          schema,
+          text: undefined,
+          error: undefined,
+          autoDismissMs: 0,
+          timestamp: Date.now(),
+        });
+      } else {
+        playSound('cardAppear');
+        const cardId = floatingCards.pushSchema(schema);
+        activeSchemaCardIdRef.current = cardId;
+      }
     }
     prevSchemaRef.current = schema;
   }, [schema, playSound, floatingCards]);
@@ -128,6 +154,9 @@ function DesktopWidgetShellInner() {
   // Wrapped dismiss with sound
   const handleDismiss = useCallback((id: string) => {
     playSound('cardDismiss');
+    if (activeSchemaCardIdRef.current === id) {
+      activeSchemaCardIdRef.current = null;
+    }
     floatingCards.dismissCard(id);
   }, [playSound, floatingCards]);
 
@@ -162,7 +191,7 @@ function DesktopWidgetShellInner() {
       {/* Notifications */}
       <NotificationQueue position="top-right" />
 
-      {/* Bridge Indicator — coin supérieur gauche */}
+      {/* Bridge Indicator — coin inférieur droit */}
       <BridgeIndicator
         brainMode={brainMode}
         isAutonomous={isAutonomousMode}

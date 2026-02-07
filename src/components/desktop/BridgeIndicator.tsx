@@ -12,7 +12,7 @@ interface BridgeIndicatorProps {
 }
 
 /**
- * BridgeIndicator — Indicateur compact coin supérieur gauche
+ * BridgeIndicator — Indicateur compact coin inférieur droit
  * Affiche le statut du pont système et le mode du cerveau
  */
 export function BridgeIndicator({
@@ -29,17 +29,17 @@ export function BridgeIndicator({
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: -20 }}
+      initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-      className="fixed top-4 left-4 z-50"
+      className="fixed bottom-4 right-4 z-50"
       onMouseEnter={() => onMouseStateChange?.(true)}
       onMouseLeave={() => onMouseStateChange?.(false)}
     >
       <div
         className="flex items-center gap-3 px-3 py-2"
         style={{
-          background: 'hsl(220 22% 8% / 0.85)',
+          background: 'hsl(220 22% 8% / 0.7)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
           clipPath: 'polygon(8px 0%, calc(100% - 4px) 0%, 100% 4px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 4px 100%, 0% calc(100% - 4px), 0% 8px)',

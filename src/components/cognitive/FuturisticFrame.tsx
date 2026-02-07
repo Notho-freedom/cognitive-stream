@@ -6,6 +6,8 @@ interface FuturisticFrameProps {
   className?: string;
   variant?: 'primary' | 'secondary' | 'minimal';
   animated?: boolean;
+  surfaceOpacity?: number;
+  gridOpacity?: number;
 }
 
 /**
@@ -16,7 +18,9 @@ export function FuturisticFrame({
   children, 
   className,
   variant = 'primary',
-  animated = true 
+  animated = true,
+  surfaceOpacity,
+  gridOpacity,
 }: FuturisticFrameProps) {
   const colors = {
     primary: {
@@ -39,6 +43,12 @@ export function FuturisticFrame({
   // Corner cut sizes
   const cornerSize = 24;
   const smallCorner = 6;
+  const resolvedSurfaceOpacity = typeof surfaceOpacity === 'number'
+    ? Math.min(1, Math.max(0, surfaceOpacity))
+    : undefined;
+  const resolvedGridOpacity = typeof gridOpacity === 'number'
+    ? Math.min(1, Math.max(0, gridOpacity))
+    : 0.03;
 
   return (
     <div className={cn('relative', className)}>
@@ -62,18 +72,25 @@ export function FuturisticFrame({
         <div 
           className="absolute inset-0"
           style={{
-            background: `linear-gradient(135deg, 
-              hsl(220, 22%, 10%) 0%, 
-              hsl(220, 22%, 7%) 50%,
-              hsl(220, 22%, 9%) 100%
-            )`,
+            background: resolvedSurfaceOpacity === undefined
+              ? `linear-gradient(135deg, 
+                  hsl(220, 22%, 10%) 0%, 
+                  hsl(220, 22%, 7%) 50%,
+                  hsl(220, 22%, 9%) 100%
+                )`
+              : `linear-gradient(135deg, 
+                  hsl(220 22% 10% / ${resolvedSurfaceOpacity}) 0%, 
+                  hsl(220 22% 7% / ${resolvedSurfaceOpacity}) 50%,
+                  hsl(220 22% 9% / ${resolvedSurfaceOpacity}) 100%
+                )`,
           }}
         />
         
         {/* Grid pattern overlay */}
         <div 
-          className="absolute inset-0 opacity-[0.03]"
+          className="absolute inset-0"
           style={{
+            opacity: resolvedGridOpacity,
             backgroundImage: `
               linear-gradient(${colors.main}20 1px, transparent 1px),
               linear-gradient(90deg, ${colors.main}20 1px, transparent 1px)

@@ -127,7 +127,12 @@ export function FloatingResponseCard({
         'relative',
         hasSchema ? 'w-[540px] max-w-[90vw]' : 'w-[480px] max-w-[85vw]',
       )}>
-        <FuturisticFrame variant={frameVariant} animated={!isComplete}>
+        <FuturisticFrame
+          variant={frameVariant}
+          animated={!isComplete}
+          surfaceOpacity={0.75}
+          gridOpacity={0.02}
+        >
           <div className="p-5">
             {/* ── Header ── */}
             <CardHeader
