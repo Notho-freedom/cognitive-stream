@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, type MouseEvent } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { FuturisticFrame } from '@/components/cognitive/FuturisticFrame';
@@ -15,14 +15,16 @@ export interface FloatingCard {
   error?: string;
   autoDismissMs?: number; // 0 = manual dismiss only
   timestamp: number;
+  position: { x: number; y: number };
+  zIndex: number;
 }
 
 interface FloatingResponseCardProps {
   card: FloatingCard;
-  index: number;
-  total: number;
   onDismiss: (id: string) => void;
   onAction: (action: ActionPayload) => void;
+  onPositionChange: (id: string, position: { x: number; y: number }) => void;
+  onBringToFront: (id: string) => void;
   onMouseStateChange?: (inside: boolean) => void;
 }
 
@@ -40,15 +42,16 @@ const TYPE_CONFIG = {
  */
 export function FloatingResponseCard({
   card,
-  index,
-  total,
   onDismiss,
   onAction,
+  onPositionChange,
+  onBringToFront,
   onMouseStateChange,
 }: FloatingResponseCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
   // Mark complete immediately if no streaming text
   useEffect(() => {
@@ -70,9 +73,6 @@ export function FloatingResponseCard({
     return () => clearTimeout(timer);
   }, [card.id, card.autoDismissMs, isHovered, isComplete, card.type, card.text, onDismiss]);
 
-  // Stack offset — newer cards appear higher
-  const stackOffset = (total - 1 - index) * 8;
-
   const frameVariant = card.type === 'error' ? 'secondary' : 'primary';
   const config = TYPE_CONFIG[card.type];
 
@@ -81,14 +81,45 @@ export function FloatingResponseCard({
   const hasText = Boolean(card.text);
   const hasError = Boolean(card.error);
 
+  const handleDragStart = (e: MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    e.preventDefault();
+    onBringToFront(card.id);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: card.position.x,
+      origY: card.position.y,
+    };
+
+    const handleMove = (ev: globalThis.MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      onPositionChange(card.id, {
+        x: dragRef.current.origX + dx,
+        y: dragRef.current.origY + dy,
+      });
+    };
+
+    const handleUp = () => {
+      dragRef.current = null;
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.92, y: 40 }}
-      animate={{ opacity: 1, scale: 1, y: -stackOffset }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95, y: -20 }}
       transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-      className="pointer-events-auto"
-      style={{ zIndex: 100 + index }}
+      className="pointer-events-auto absolute select-none"
+      style={{ left: card.position.x, top: card.position.y, zIndex: card.zIndex }}
       onMouseEnter={() => { setIsHovered(true); onMouseStateChange?.(true); }}
       onMouseLeave={() => { setIsHovered(false); onMouseStateChange?.(false); }}
     >
@@ -99,7 +130,12 @@ export function FloatingResponseCard({
         <FuturisticFrame variant={frameVariant} animated={!isComplete}>
           <div className="p-5">
             {/* ── Header ── */}
-            <CardHeader type={card.type} config={config} onDismiss={() => onDismiss(card.id)} />
+            <CardHeader
+              type={card.type}
+              config={config}
+              onDismiss={() => onDismiss(card.id)}
+              onDragStart={handleDragStart}
+            />
 
             {/* ── Content area with scroll ── */}
             <ScrollArea className="max-h-[60vh]">
@@ -162,13 +198,18 @@ function CardHeader({
   type,
   config,
   onDismiss,
+  onDragStart,
 }: {
   type: FloatingCard['type'];
   config: { label: string; dotClass: string };
   onDismiss: () => void;
+  onDragStart: (event: MouseEvent) => void;
 }) {
   return (
-    <div className="flex items-center justify-between mb-3 pb-2 border-b border-intent-primary/15">
+    <div
+      className="flex items-center justify-between mb-3 pb-2 border-b border-intent-primary/15 cursor-grab"
+      onMouseDown={onDragStart}
+    >
       <div className="flex items-center gap-2">
         <div className={cn('w-1.5 h-1.5 rounded-full', config.dotClass)} />
         <span className="text-[9px] uppercase tracking-[0.2em] text-text-ghost font-light">

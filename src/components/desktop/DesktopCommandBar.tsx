@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback, type MouseEvent } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { StateIndicator } from '@/components/cognitive/StateIndicator';
@@ -40,6 +40,57 @@ export function DesktopCommandBar({
 }: DesktopCommandBarProps) {
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+
+  const [position, setPosition] = useState(() => {
+    if (typeof window === 'undefined') {
+      return { x: 0, y: 0 };
+    }
+    const width = 560;
+    const height = 84;
+    const margin = 24;
+    return {
+      x: Math.max(margin, (window.innerWidth - width) / 2),
+      y: Math.max(margin, window.innerHeight - height - margin),
+    };
+  });
+
+  const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+  const handleDragStart = useCallback((e: MouseEvent) => {
+    if ((e.target as HTMLElement).closest('input, textarea, button')) return;
+    e.preventDefault();
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: position.x,
+      origY: position.y,
+    };
+
+    const handleMove = (ev: globalThis.MouseEvent) => {
+      if (!dragRef.current) return;
+      const width = 560;
+      const height = 84;
+      const margin = 16;
+      const maxX = Math.max(margin, window.innerWidth - width - margin);
+      const maxY = Math.max(margin, window.innerHeight - height - margin);
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      setPosition({
+        x: clamp(dragRef.current.origX + dx, margin, maxX),
+        y: clamp(dragRef.current.origY + dy, margin, maxY),
+      });
+    };
+
+    const handleUp = () => {
+      dragRef.current = null;
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+  }, [position]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,9 +124,11 @@ export function DesktopCommandBar({
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50"
+      className="fixed z-50"
+      style={{ left: position.x, top: position.y }}
       onMouseEnter={() => onMouseStateChange?.(true)}
       onMouseLeave={() => onMouseStateChange?.(false)}
+      onMouseDown={handleDragStart}
     >
       <div
         className="relative w-[560px]"

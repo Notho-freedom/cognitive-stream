@@ -10,6 +10,9 @@ import type { CognitiveUISchema } from '@/components/cognitive/dynamic/types';
 const DEFAULT_DISMISS_MS = 8000; // 8 secondes par défaut
 const ERROR_DISMISS_MS = 12000;
 const ACTION_DISMISS_MS = 0; // Les actions ne se ferment pas auto
+const CARD_WIDTH = 540;
+const CARD_HEIGHT = 320;
+const VIEWPORT_MARGIN = 40;
 
 let cardIdCounter = 0;
 function nextCardId() {
@@ -19,6 +22,38 @@ function nextCardId() {
 export function useFloatingCards() {
   const [cards, setCards] = useState<FloatingCard[]>([]);
   const maxCards = useRef(5); // Max visible cards
+  const lastPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const zIndexRef = useRef(200);
+
+  const getViewport = () => {
+    if (typeof window === 'undefined') {
+      return { width: 1280, height: 720 };
+    }
+    return { width: window.innerWidth, height: window.innerHeight };
+  };
+
+  const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+  const computeNextPosition = () => {
+    const { width, height } = getViewport();
+    const maxX = Math.max(VIEWPORT_MARGIN, width - CARD_WIDTH - VIEWPORT_MARGIN);
+    const maxY = Math.max(VIEWPORT_MARGIN, height - CARD_HEIGHT - VIEWPORT_MARGIN);
+
+    const base = lastPositionRef.current ?? {
+      x: clamp((width - CARD_WIDTH) / 2, VIEWPORT_MARGIN, maxX),
+      y: clamp((height - CARD_HEIGHT) / 2, VIEWPORT_MARGIN, maxY),
+    };
+
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 70 + Math.random() * 90;
+    const next = {
+      x: clamp(base.x + Math.cos(angle) * radius, VIEWPORT_MARGIN, maxX),
+      y: clamp(base.y + Math.sin(angle) * radius, VIEWPORT_MARGIN, maxY),
+    };
+
+    lastPositionRef.current = next;
+    return next;
+  };
 
   const pushCard = useCallback((
     type: FloatingCard['type'],
@@ -44,6 +79,8 @@ export function useFloatingCards() {
       error: options.error,
       autoDismissMs: options.autoDismissMs ?? defaultDismiss,
       timestamp: Date.now(),
+      position: computeNextPosition(),
+      zIndex: zIndexRef.current++,
     };
 
     setCards(prev => {
@@ -68,6 +105,12 @@ export function useFloatingCards() {
 
   const updateCard = useCallback((id: string, updates: Partial<FloatingCard>) => {
     setCards(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+  }, []);
+
+  const bringToFront = useCallback((id: string) => {
+    setCards(prev => prev.map(card => (
+      card.id === id ? { ...card, zIndex: zIndexRef.current++ } : card
+    )));
   }, []);
 
   // Convenience methods
@@ -103,5 +146,6 @@ export function useFloatingCards() {
     dismissCard,
     dismissAll,
     updateCard,
+    bringToFront,
   };
 }
