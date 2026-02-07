@@ -150,6 +150,13 @@
       radial-gradient(ellipse 60% 40% at 80% 100%, hsl(var(--intent-secondary) / 0.05), transparent),
       hsl(var(--background));
     min-height: 100vh;
+    user-select: none;
+  }
+
+  input,
+  textarea,
+  [contenteditable="true"] {
+    user-select: text;
   }
 
   /* Electron desktop widget mode — fond transparent, pas de background */
