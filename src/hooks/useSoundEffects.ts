@@ -183,5 +183,10 @@ export function useSoundEffects() {
     return enabledRef.current;
   }, []);
 
-  return { play, toggle, isEnabled: () => enabledRef.current };
+  const setEnabled = useCallback((value: boolean) => {
+    enabledRef.current = value;
+    return enabledRef.current;
+  }, []);
+
+  return { play, toggle, setEnabled, isEnabled: () => enabledRef.current };
 }

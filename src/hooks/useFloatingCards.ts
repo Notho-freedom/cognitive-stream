@@ -7,8 +7,8 @@ import type { CognitiveUISchema } from '@/components/cognitive/dynamic/types';
  * Chaque réponse/erreur/action crée une carte séparée
  */
 
-const DEFAULT_DISMISS_MS = 8000; // 8 secondes par défaut
-const ERROR_DISMISS_MS = 12000;
+const DEFAULT_DISMISS_MS = 60000; // 60 secondes par défaut
+const ERROR_DISMISS_MS = 60000;
 const ACTION_DISMISS_MS = 0; // Les actions ne se ferment pas auto
 const CARD_WIDTH = 540;
 const CARD_HEIGHT = 320;
@@ -119,8 +119,7 @@ export function useFloatingCards() {
   }, [pushCard]);
 
   const pushSchema = useCallback((schema: CognitiveUISchema, autoDismissMs?: number) => {
-    // Schemas with interactive elements should stay until dismissed
-    return pushCard('response', { schema, autoDismissMs: autoDismissMs ?? 0 });
+    return pushCard('response', { schema, autoDismissMs: autoDismissMs ?? DEFAULT_DISMISS_MS });
   }, [pushCard]);
 
   const pushError = useCallback((error: string) => {

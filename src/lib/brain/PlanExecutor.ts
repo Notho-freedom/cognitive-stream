@@ -369,7 +369,9 @@ export class PlanExecutor {
     step.completedAt = Date.now();
     this.callbacks.onStepUpdate?.(step);
     this.emitEvent('step.failed', { stepId: step.id, error });
-    this.callbacks.onError?.(error, step);
+    if (!step.canFail || step.isCritical) {
+      this.callbacks.onError?.(error, step);
+    }
     
     // Exécuter le fallback si disponible
     if (step.fallback && step.canFail && !step.isCritical) {

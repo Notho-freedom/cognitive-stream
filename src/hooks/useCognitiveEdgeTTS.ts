@@ -185,6 +185,23 @@ export function useCognitiveEdgeTTS(options: CognitiveEdgeTTSOptions = DEFAULT_O
   }, []);
 
   /**
+   * Set TTS enabled/disabled explicitly
+   */
+  const setEnabled = useCallback((enabled: boolean) => {
+    setState(prev => {
+      if (prev.isEnabled === enabled) return prev;
+      if (!enabled) {
+        speakQueueRef.current = [];
+        if (currentAudioRef.current) {
+          currentAudioRef.current.pause();
+          currentAudioRef.current = null;
+        }
+      }
+      return { ...prev, isEnabled: enabled };
+    });
+  }, []);
+
+  /**
    * Set voice
    */
   const setVoice = useCallback((voice: keyof typeof COGNITIVE_EDGE_VOICES) => {
@@ -219,6 +236,7 @@ export function useCognitiveEdgeTTS(options: CognitiveEdgeTTSOptions = DEFAULT_O
     stop,
     clearQueue,
     toggle,
+    setEnabled,
     
     // Settings
     setVoice,

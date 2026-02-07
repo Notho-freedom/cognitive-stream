@@ -26,6 +26,7 @@ interface FloatingResponseCardProps {
   onPositionChange: (id: string, position: { x: number; y: number }) => void;
   onBringToFront: (id: string) => void;
   onMouseStateChange?: (inside: boolean) => void;
+  surfaceOpacity?: number;
 }
 
 const TYPE_CONFIG = {
@@ -47,6 +48,7 @@ export function FloatingResponseCard({
   onPositionChange,
   onBringToFront,
   onMouseStateChange,
+  surfaceOpacity,
 }: FloatingResponseCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
@@ -71,7 +73,7 @@ export function FloatingResponseCard({
     }, card.autoDismissMs);
 
     return () => clearTimeout(timer);
-  }, [card.id, card.autoDismissMs, isHovered, isComplete, card.type, card.text, onDismiss]);
+  }, [card.id, card.autoDismissMs, card.timestamp, isHovered, isComplete, card.type, card.text, onDismiss]);
 
   const frameVariant = card.type === 'error' ? 'secondary' : 'primary';
   const config = TYPE_CONFIG[card.type];
@@ -130,7 +132,7 @@ export function FloatingResponseCard({
         <FuturisticFrame
           variant={frameVariant}
           animated={!isComplete}
-          surfaceOpacity={0.75}
+          surfaceOpacity={surfaceOpacity ?? 0.75}
           gridOpacity={0.02}
         >
           <div className="p-5">

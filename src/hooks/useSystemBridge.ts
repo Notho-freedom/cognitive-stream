@@ -65,6 +65,49 @@ interface SystemInfo {
   uptime: number;
 }
 
+interface SystemMetrics {
+  timestamp: number;
+  cpu: {
+    usage: number | null;
+    cores: number;
+    model?: string;
+    speedMHz?: number;
+  };
+  memory: {
+    total: number;
+    free: number;
+    used: number;
+    usage: number;
+  };
+  gpu?: {
+    name?: string;
+    vendor?: string;
+    memoryTotal?: number | null;
+    memoryUsed?: number | null;
+    usage?: number | null;
+    driverVersion?: string;
+  };
+  disk?: Array<{
+    mount: string;
+    total: number;
+    used: number;
+    usage: number;
+    fsType?: string;
+  }>;
+  network?: Array<{
+    iface: string;
+    rx: number;
+    tx: number;
+    rxSec?: number;
+    txSec?: number;
+  }>;
+  uptime?: number;
+  temperature?: {
+    cpu?: number | null;
+    gpu?: number | null;
+  };
+}
+
 interface OutputEvent {
   type: 'stdout' | 'stderr';
   data: string;
@@ -81,6 +124,7 @@ interface CognitiveBridge {
   exists: (path: string) => Promise<{ exists: boolean; path: string }>;
   delete: (path: string, options?: { recursive?: boolean }) => Promise<{ success: boolean; path: string; error?: string }>;
   getSystemInfo: () => Promise<SystemInfo>;
+  getSystemMetrics: () => Promise<SystemMetrics>;
   minimize: () => void;
   maximize: () => void;
   close: () => void;
@@ -129,6 +173,18 @@ export function useSystemBridge() {
       };
     }
     return window.cognitiveBridge.exec(command, options);
+  }, []);
+
+  // Get system metrics (live)
+  const getSystemMetrics = useCallback(async (): Promise<SystemMetrics> => {
+    if (!window.cognitiveBridge) {
+      return {
+        timestamp: Date.now(),
+        cpu: { usage: null, cores: 0 },
+        memory: { total: 0, free: 0, used: 0, usage: 0 },
+      };
+    }
+    return window.cognitiveBridge.getSystemMetrics();
   }, []);
 
   // Spawn process
@@ -232,7 +288,8 @@ export function useSystemBridge() {
     
     // Window
     window: windowControls,
+    getSystemMetrics,
   };
 }
 
-export type { ExecResult, SpawnResult, FileReadResult, FileWriteResult, DirListResult, DirItem, SystemInfo, OutputEvent };
+export type { ExecResult, SpawnResult, FileReadResult, FileWriteResult, DirListResult, DirItem, SystemInfo, SystemMetrics, OutputEvent };

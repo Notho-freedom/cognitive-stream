@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('cognitiveBridge', {
   // System Information
   // ─────────────────────────────────────────────────────────────
   getSystemInfo: () => ipcRenderer.invoke('system:info'),
+  getSystemMetrics: () => ipcRenderer.invoke('system:metrics'),
 
   // ─────────────────────────────────────────────────────────────
   // Window Controls

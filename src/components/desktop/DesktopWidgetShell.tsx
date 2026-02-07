@@ -1,5 +1,5 @@
-import { useMemo, useEffect, useRef, useCallback } from 'react';
-import { AnimatePresence } from 'framer-motion';
+import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
+import { AnimatePresence, MotionConfig } from 'framer-motion';
 import {
   NotificationProvider,
   NotificationQueue,
@@ -9,11 +9,14 @@ import { useCognitiveBrain } from '@/hooks/useCognitiveBrain';
 import { useCognitiveEdgeTTS } from '@/hooks/useCognitiveEdgeTTS';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useFloatingCards } from '@/hooks/useFloatingCards';
+import { useSystemMetrics } from '@/hooks/useSystemMetrics';
+import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { AutonomyConfirmDialog } from '@/components/cognitive/AutonomyConfirmDialog';
 import { AutonomyQuestionDialog } from '@/components/cognitive/AutonomyQuestionDialog';
 import { BridgeIndicator } from './BridgeIndicator';
 import { DesktopCommandBar } from './DesktopCommandBar';
 import { FloatingResponseCard } from './FloatingResponseCard';
+import { DesktopSidePanel } from './DesktopSidePanel';
 
 // Mapping des modes du cerveau
 const brainModeLabels: Record<string, string> = {
@@ -35,9 +38,16 @@ const brainModeLabels: Record<string, string> = {
 function DesktopWidgetShellInner() {
   const { push: notifyPush } = useNotifications();
   const brain = useCognitiveBrain(notifyPush);
-  const { play: playSound } = useSoundEffects();
+  const { play: playSound, setEnabled: setSoundEnabled, isEnabled: isSoundEnabled } = useSoundEffects();
   const floatingCards = useFloatingCards();
   const activeSchemaCardIdRef = useRef<string | null>(null);
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [panelTab, setPanelTab] = useState<'system' | 'settings'>('system');
+  const [surfaceOpacity, setSurfaceOpacity] = useState(0.75);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const [soundsEnabled, setSoundsEnabled] = useState(isSoundEnabled());
+
+  const { metrics, isAvailable: isSystemAvailable } = useSystemMetrics({ intervalMs: 2000, enabled: true });
 
   const {
     messages,
@@ -66,7 +76,14 @@ function DesktopWidgetShellInner() {
   } = brain;
 
   // TTS
-  useCognitiveEdgeTTS({ autoPlay: true, maxLength: 500, skipIfSpeaking: true });
+  const tts = useCognitiveEdgeTTS({ autoPlay: true, maxLength: 500, skipIfSpeaking: true });
+
+  const voiceInput = useVoiceInput({
+    onFinalTranscript: (text) => {
+      if (!text.trim()) return;
+      handleSend(text.trim());
+    },
+  });
 
   const brainMode = useMemo(() => {
     if (!mentalState) return null;
@@ -79,6 +96,8 @@ function DesktopWidgetShellInner() {
   const prevThoughtRef = useRef(thought);
   const prevIsLoadingRef = useRef(isLoading);
   const prevUserMessageCountRef = useRef(0);
+  const lastSpokenRef = useRef<string | null>(null);
+  const peakCooldownRef = useRef(0);
 
   const userMessageCount = useMemo(
     () => messages.filter(message => message.role === 'user').length,
@@ -101,7 +120,6 @@ function DesktopWidgetShellInner() {
           schema,
           text: undefined,
           error: undefined,
-          autoDismissMs: 0,
           timestamp: Date.now(),
         });
       } else {
@@ -139,6 +157,51 @@ function DesktopWidgetShellInner() {
     prevIsLoadingRef.current = isLoading;
   }, [isLoading, playSound]);
 
+  // Sync sound toggle
+  useEffect(() => {
+    setSoundEnabled(soundsEnabled);
+  }, [soundsEnabled, setSoundEnabled]);
+
+  // Voice output: speak the first text block when a stable schema arrives
+  useEffect(() => {
+    if (!tts.isEnabled || !schema || isStreaming) return;
+    if (schema.metadata?.isTransition) return;
+    const firstTextBlock = schema.blocks?.find(
+      block => block.type === 'text' && typeof block.content === 'string'
+    ) as { content?: string } | undefined;
+    const textToSpeak = firstTextBlock?.content?.trim();
+    if (!textToSpeak || textToSpeak === lastSpokenRef.current) return;
+    lastSpokenRef.current = textToSpeak;
+    tts.speakThought(textToSpeak);
+  }, [schema, isStreaming, tts]);
+
+  // System peak detection → suggest performance mode
+  useEffect(() => {
+    if (!metrics) return;
+    const now = Date.now();
+    if (now - peakCooldownRef.current < 60000) return;
+
+    const cpu = metrics.cpu?.usage ?? 0;
+    const mem = metrics.memory?.usage ?? 0;
+    const gpu = metrics.gpu?.usage ?? 0;
+
+    if (cpu > 85 || mem > 90 || gpu > 90) {
+      peakCooldownRef.current = now;
+      notifyPush({
+        message: `Pic détecté — CPU ${cpu.toFixed(0)}% • RAM ${mem.toFixed(0)}%${gpu ? ` • GPU ${gpu.toFixed(0)}%` : ''}`,
+        priority: 'high',
+        dismissible: true,
+        action: {
+          label: 'Réduire la charge',
+          onClick: () => {
+            setReduceMotion(true);
+            setSoundsEnabled(false);
+          },
+        },
+      });
+    }
+  }, [metrics, notifyPush]);
+
   // Wrapped sendMessage with sound
   const handleSend = useCallback((msg: string) => {
     playSound('send');
@@ -162,7 +225,9 @@ function DesktopWidgetShellInner() {
 
   // Click-through pour Electron
   const handleMouseState = (inside: boolean) => {
-    const bridge = (window as any).cognitiveBridge;
+    const bridge = (window as Window & {
+      cognitiveBridge?: { widgetMouseEnter?: () => void; widgetMouseLeave?: () => void };
+    }).cognitiveBridge;
     if (!bridge) return;
     if (inside) {
       bridge.widgetMouseEnter?.();
@@ -172,7 +237,8 @@ function DesktopWidgetShellInner() {
   };
 
   return (
-    <>
+    <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
+      <>
       {/* Dialogs (toujours au premier plan) */}
       <AutonomyConfirmDialog
         open={Boolean(pendingConfirmation)}
@@ -199,6 +265,7 @@ function DesktopWidgetShellInner() {
         autonomyLimit={autonomyLimit}
         activeTasks={activeTasks.length}
         onMouseStateChange={handleMouseState}
+        surfaceOpacity={surfaceOpacity}
       />
 
       {/* Floating Response Cards — centre de l'écran */}
@@ -213,10 +280,37 @@ function DesktopWidgetShellInner() {
               onPositionChange={(id, position) => floatingCards.updateCard(id, { position })}
               onBringToFront={floatingCards.bringToFront}
               onMouseStateChange={handleMouseState}
+              surfaceOpacity={surfaceOpacity}
             />
           ))}
         </AnimatePresence>
       </div>
+
+      {/* Side Panel — centre droit */}
+      <DesktopSidePanel
+        metrics={metrics}
+        isAvailable={isSystemAvailable}
+        isCollapsed={panelCollapsed}
+        activeTab={panelTab}
+        onToggleCollapse={() => setPanelCollapsed(prev => !prev)}
+        onTabChange={setPanelTab}
+        onMouseStateChange={handleMouseState}
+        surfaceOpacity={surfaceOpacity}
+        onSurfaceOpacityChange={setSurfaceOpacity}
+        ttsEnabled={tts.isEnabled}
+        onTtsToggle={tts.setEnabled}
+        voiceInputEnabled={voiceInput.isEnabled}
+        voiceInputSupported={voiceInput.isSupported}
+        onVoiceInputToggle={voiceInput.setEnabled}
+        soundsEnabled={soundsEnabled}
+        onSoundsToggle={setSoundsEnabled}
+        reduceMotion={reduceMotion}
+        onReduceMotionToggle={setReduceMotion}
+        onActivatePerformanceMode={() => {
+          setReduceMotion(true);
+          setSoundsEnabled(false);
+        }}
+      />
 
       {/* Command Bar — bas-centre */}
       <DesktopCommandBar
@@ -232,8 +326,10 @@ function DesktopWidgetShellInner() {
         brainMode={brainMode}
         messageCount={messages.length}
         onMouseStateChange={handleMouseState}
+        surfaceOpacity={surfaceOpacity}
       />
-    </>
+      </>
+    </MotionConfig>
   );
 }
 

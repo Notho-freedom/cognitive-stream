@@ -18,6 +18,7 @@ interface DesktopCommandBarProps {
   brainMode: string | null;
   messageCount: number;
   onMouseStateChange?: (inside: boolean) => void;
+  surfaceOpacity?: number;
 }
 
 /**
@@ -37,6 +38,7 @@ export function DesktopCommandBar({
   brainMode,
   messageCount,
   onMouseStateChange,
+  surfaceOpacity,
 }: DesktopCommandBarProps) {
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -133,7 +135,7 @@ export function DesktopCommandBar({
       <div
         className="relative w-[560px]"
         style={{
-          background: 'hsl(220 22% 8% / 0.72)',
+          background: `hsl(220 22% 8% / ${Math.min(0.95, Math.max(0.4, surfaceOpacity ?? 0.72))})`,
           backdropFilter: 'blur(24px)',
           WebkitBackdropFilter: 'blur(24px)',
           clipPath: 'polygon(16px 0%, calc(100% - 4px) 0%, 100% 4px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 4px 100%, 0% calc(100% - 4px), 0% 16px)',

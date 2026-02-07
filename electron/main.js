@@ -3,6 +3,17 @@ const path = require('path');
 const { spawn, exec } = require('child_process');
 const fs = require('fs');
 const os = require('os');
+let systemInfoProvider = null;
+
+try {
+  // Optional dependency for richer metrics
+  systemInfoProvider = require('systeminformation');
+} catch (error) {
+  console.warn('[SystemMetrics] Optional dependency "systeminformation" not available');
+}
+
+let lastCpuSample = null;
+let gpuInfoCache = null;
 
 // Keep a global reference of the window object
 let mainWindow;
@@ -63,6 +74,37 @@ app.on('activate', () => {
     createWindow();
   }
 });
+
+// ═══════════════════════════════════════════════════════════════
+// SYSTEM METRICS HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+function snapshotCpuTimes() {
+  const cpus = os.cpus();
+  return cpus.reduce(
+    (acc, cpu) => {
+      const times = cpu.times;
+      acc.total += times.user + times.nice + times.sys + times.irq + times.idle;
+      acc.idle += times.idle;
+      return acc;
+    },
+    { total: 0, idle: 0 }
+  );
+}
+
+function calculateCpuUsage() {
+  const current = snapshotCpuTimes();
+  if (!lastCpuSample) {
+    lastCpuSample = current;
+    return null;
+  }
+  const totalDiff = current.total - lastCpuSample.total;
+  const idleDiff = current.idle - lastCpuSample.idle;
+  lastCpuSample = current;
+  if (totalDiff <= 0) return null;
+  const usage = (1 - idleDiff / totalDiff) * 100;
+  return Math.max(0, Math.min(100, usage));
+}
 
 // ═══════════════════════════════════════════════════════════════
 // WIDGET MOUSE PASSTHROUGH - Desktop widget click-through
@@ -280,6 +322,103 @@ ipcMain.handle('system:info', async () => {
       free: os.freemem(),
     },
     uptime: os.uptime(),
+  };
+});
+
+// Get live system metrics (CPU/RAM/GPU/Disk/Network)
+ipcMain.handle('system:metrics', async () => {
+  const cpuInfo = os.cpus();
+  const cpuUsage = systemInfoProvider
+    ? Math.round((await systemInfoProvider.currentLoad()).currentLoad * 10) / 10
+    : calculateCpuUsage();
+
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = totalMem - freeMem;
+  const memUsage = totalMem > 0 ? Math.round((usedMem / totalMem) * 1000) / 10 : 0;
+
+  let gpuInfo = null;
+  if (systemInfoProvider) {
+    const graphics = await systemInfoProvider.graphics();
+    if (graphics?.controllers?.length > 0) {
+      const controller = graphics.controllers[0];
+      gpuInfo = {
+        name: controller.model,
+        vendor: controller.vendor,
+        memoryTotal: controller.vram ? controller.vram * 1024 * 1024 : null,
+        memoryUsed: controller.vramUsed ? controller.vramUsed * 1024 * 1024 : null,
+        usage: typeof controller.utilizationGpu === 'number' ? controller.utilizationGpu : null,
+        driverVersion: controller.driverVersion,
+      };
+    }
+  }
+
+  if (!gpuInfo) {
+    if (!gpuInfoCache) {
+      try {
+        gpuInfoCache = await app.getGPUInfo('basic');
+      } catch (error) {
+        gpuInfoCache = null;
+      }
+    }
+    const device = Array.isArray(gpuInfoCache?.gpuDevice) ? gpuInfoCache.gpuDevice[0] : null;
+    gpuInfo = {
+      name: device?.deviceString || gpuInfoCache?.renderer || 'GPU',
+      vendor: device?.vendorString,
+      memoryTotal: null,
+      memoryUsed: null,
+      usage: null,
+    };
+  }
+
+  let diskInfo = [];
+  let networkInfo = [];
+  let temperatureInfo = {};
+
+  if (systemInfoProvider) {
+    const disks = await systemInfoProvider.fsSize();
+    diskInfo = disks.map((disk) => ({
+      mount: disk.mount,
+      total: disk.size,
+      used: disk.used,
+      usage: disk.use,
+      fsType: disk.type,
+    }));
+
+    const nets = await systemInfoProvider.networkStats();
+    networkInfo = nets.map((net) => ({
+      iface: net.iface,
+      rx: net.rx_bytes,
+      tx: net.tx_bytes,
+      rxSec: net.rx_sec,
+      txSec: net.tx_sec,
+    }));
+
+    const temps = await systemInfoProvider.cpuTemperature();
+    temperatureInfo = {
+      cpu: typeof temps.main === 'number' ? temps.main : null,
+    };
+  }
+
+  return {
+    timestamp: Date.now(),
+    cpu: {
+      usage: cpuUsage !== null ? Math.round(cpuUsage * 10) / 10 : null,
+      cores: cpuInfo.length,
+      model: cpuInfo[0]?.model,
+      speedMHz: cpuInfo[0]?.speed,
+    },
+    memory: {
+      total: totalMem,
+      free: freeMem,
+      used: usedMem,
+      usage: memUsage,
+    },
+    gpu: gpuInfo,
+    disk: diskInfo,
+    network: networkInfo,
+    uptime: os.uptime(),
+    temperature: temperatureInfo,
   };
 });
 
