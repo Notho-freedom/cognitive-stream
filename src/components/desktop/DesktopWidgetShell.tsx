@@ -11,12 +11,14 @@ import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useFloatingCards } from '@/hooks/useFloatingCards';
 import { useSystemMetrics } from '@/hooks/useSystemMetrics';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
+import { useDesktopIcons } from '@/hooks/useDesktopIcons';
 import { AutonomyConfirmDialog } from '@/components/cognitive/AutonomyConfirmDialog';
 import { AutonomyQuestionDialog } from '@/components/cognitive/AutonomyQuestionDialog';
 import { BridgeIndicator } from './BridgeIndicator';
 import { DesktopCommandBar } from './DesktopCommandBar';
 import { FloatingResponseCard } from './FloatingResponseCard';
 import { DesktopSidePanel } from './DesktopSidePanel';
+import { DesktopIconZone } from './DesktopIconZone';
 
 // Mapping des modes du cerveau
 const brainModeLabels: Record<string, string> = {
@@ -47,7 +49,13 @@ function DesktopWidgetShellInner() {
   const [reduceMotion, setReduceMotion] = useState(false);
   const [soundsEnabled, setSoundsEnabled] = useState(isSoundEnabled());
 
-  const { metrics, isAvailable: isSystemAvailable } = useSystemMetrics({ intervalMs: 2000, enabled: true });
+  const metricsEnabled = false;
+  const metricsInterval = panelCollapsed ? 8000 : panelTab === 'system' ? 2000 : 5000;
+  const { metrics, isAvailable: isSystemAvailable } = useSystemMetrics({
+    intervalMs: metricsInterval,
+    enabled: metricsEnabled,
+  });
+  const desktopIcons = useDesktopIcons();
 
   const {
     messages,
@@ -177,6 +185,7 @@ function DesktopWidgetShellInner() {
 
   // System peak detection → suggest performance mode
   useEffect(() => {
+    if (!metricsEnabled) return;
     if (!metrics) return;
     const now = Date.now();
     if (now - peakCooldownRef.current < 60000) return;
@@ -200,7 +209,7 @@ function DesktopWidgetShellInner() {
         },
       });
     }
-  }, [metrics, notifyPush]);
+  }, [metrics, notifyPush, metricsEnabled]);
 
   // Wrapped sendMessage with sound
   const handleSend = useCallback((msg: string) => {
@@ -222,6 +231,10 @@ function DesktopWidgetShellInner() {
     }
     floatingCards.dismissCard(id);
   }, [playSound, floatingCards]);
+
+  const handlePositionChange = useCallback((id: string, position: { x: number; y: number }) => {
+    floatingCards.updateCard(id, { position });
+  }, [floatingCards]);
 
   // Click-through pour Electron
   const handleMouseState = (inside: boolean) => {
@@ -255,7 +268,7 @@ function DesktopWidgetShellInner() {
       />
 
       {/* Notifications */}
-      <NotificationQueue position="top-right" />
+      <NotificationQueue position="top-right" onMouseStateChange={handleMouseState} />
 
       {/* Bridge Indicator — coin inférieur droit */}
       <BridgeIndicator
@@ -277,7 +290,7 @@ function DesktopWidgetShellInner() {
               card={card}
               onDismiss={handleDismiss}
               onAction={handleCardAction}
-              onPositionChange={(id, position) => floatingCards.updateCard(id, { position })}
+              onPositionChange={handlePositionChange}
               onBringToFront={floatingCards.bringToFront}
               onMouseStateChange={handleMouseState}
               surfaceOpacity={surfaceOpacity}
@@ -286,10 +299,19 @@ function DesktopWidgetShellInner() {
         </AnimatePresence>
       </div>
 
+      {/* Desktop icons zone — gauche */}
+      <DesktopIconZone
+        icons={desktopIcons.icons}
+        isLoading={desktopIcons.isLoading}
+        error={desktopIcons.error}
+        surfaceOpacity={surfaceOpacity}
+        onMouseStateChange={handleMouseState}
+      />
+
       {/* Side Panel — centre droit */}
       <DesktopSidePanel
         metrics={metrics}
-        isAvailable={isSystemAvailable}
+        isAvailable={metricsEnabled && isSystemAvailable}
         isCollapsed={panelCollapsed}
         activeTab={panelTab}
         onToggleCollapse={() => setPanelCollapsed(prev => !prev)}

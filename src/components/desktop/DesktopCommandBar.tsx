@@ -43,6 +43,8 @@ export function DesktopCommandBar({
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const pendingPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   const [position, setPosition] = useState(() => {
     if (typeof window === 'undefined') {
@@ -78,14 +80,26 @@ export function DesktopCommandBar({
       const maxY = Math.max(margin, window.innerHeight - height - margin);
       const dx = ev.clientX - dragRef.current.startX;
       const dy = ev.clientY - dragRef.current.startY;
-      setPosition({
+      pendingPositionRef.current = {
         x: clamp(dragRef.current.origX + dx, margin, maxX),
         y: clamp(dragRef.current.origY + dy, margin, maxY),
-      });
+      };
+      if (rafRef.current === null) {
+        rafRef.current = window.requestAnimationFrame(() => {
+          rafRef.current = null;
+          if (pendingPositionRef.current) {
+            setPosition(pendingPositionRef.current);
+          }
+        });
+      }
     };
 
     const handleUp = () => {
       dragRef.current = null;
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };

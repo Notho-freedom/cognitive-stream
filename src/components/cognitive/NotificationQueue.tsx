@@ -44,7 +44,7 @@ const PRIORITY_CONFIG: Record<NotificationPriority, {
   low: { variant: 'minimal', defaultTTL: 3000, maxVisible: 4, zBoost: 0 },
   medium: { variant: 'secondary', defaultTTL: 4000, maxVisible: 4, zBoost: 10 },
   high: { variant: 'primary', defaultTTL: 6000, maxVisible: 5, zBoost: 20 },
-  critical: { variant: 'primary', defaultTTL: 0, maxVisible: 5, zBoost: 30 }, // 0 = no auto-dismiss
+  critical: { variant: 'primary', defaultTTL: 12000, maxVisible: 5, zBoost: 30 },
 };
 
 // Provider
@@ -59,7 +59,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       ...notif,
       id,
       timestamp: Date.now(),
-      ttl: notif.ttl ?? config.defaultTTL,
+      ttl: notif.ttl === undefined ? config.defaultTTL : notif.ttl,
       dismissible: notif.dismissible ?? true,
     };
 
@@ -234,7 +234,13 @@ function NotificationItem({
 }
 
 // Queue Display Component
-export function NotificationQueue({ position = 'top-right' }: { position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' }) {
+export function NotificationQueue({
+  position = 'top-right',
+  onMouseStateChange,
+}: {
+  position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
+  onMouseStateChange?: (inside: boolean) => void;
+}) {
   const { notifications, dismiss } = useNotifications();
 
   const positionClasses = {
@@ -252,6 +258,8 @@ export function NotificationQueue({ position = 'top-right' }: { position?: 'top-
       <div 
         className="relative pointer-events-auto"
         style={{ height: containerHeight, width: 320 }}
+        onMouseEnter={() => onMouseStateChange?.(true)}
+        onMouseLeave={() => onMouseStateChange?.(false)}
       >
         <AnimatePresence mode="popLayout">
           {notifications.map((notification, index) => (

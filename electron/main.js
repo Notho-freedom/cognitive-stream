@@ -14,6 +14,71 @@ try {
 
 let lastCpuSample = null;
 let gpuInfoCache = null;
+let gpuInfoCacheTimestamp = 0;
+let fullMetricsCache = {
+  timestamp: 0,
+  disk: [],
+  network: [],
+  temperature: {},
+};
+
+const FULL_METRICS_TTL = 8000;
+const GPU_METRICS_TTL = 30000;
+
+function escapePowerShellString(value) {
+  return value.replace(/'/g, "''");
+}
+
+function resolveWindowsShortcut(filePath) {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') {
+      resolve({ success: false, path: filePath, error: 'Not supported' });
+      return;
+    }
+    const escapedPath = escapePowerShellString(filePath);
+    const command = [
+      '$s = (New-Object -ComObject WScript.Shell).CreateShortcut(\'',
+      escapedPath,
+      '\');',
+      '$obj = [PSCustomObject]@{',
+      'TargetPath = $s.TargetPath;',
+      'IconLocation = $s.IconLocation;',
+      'Arguments = $s.Arguments;',
+      'WorkingDirectory = $s.WorkingDirectory;',
+      '};',
+      '$obj | ConvertTo-Json -Compress'
+    ].join('');
+
+    exec(`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "${command}"`, (error, stdout, stderr) => {
+      if (error || stderr) {
+        resolve({
+          success: false,
+          path: filePath,
+          error: error?.message || stderr?.toString(),
+        });
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(stdout.toString().trim());
+        resolve({
+          success: true,
+          path: filePath,
+          targetPath: parsed.TargetPath || null,
+          iconLocation: parsed.IconLocation || null,
+          arguments: parsed.Arguments || null,
+          workingDirectory: parsed.WorkingDirectory || null,
+        });
+      } catch (parseError) {
+        resolve({
+          success: false,
+          path: filePath,
+          error: parseError instanceof Error ? parseError.message : 'Parse error',
+        });
+      }
+    });
+  });
+}
 
 // Keep a global reference of the window object
 let mainWindow;
@@ -327,10 +392,9 @@ ipcMain.handle('system:info', async () => {
 
 // Get live system metrics (CPU/RAM/GPU/Disk/Network)
 ipcMain.handle('system:metrics', async () => {
+  const now = Date.now();
   const cpuInfo = os.cpus();
-  const cpuUsage = systemInfoProvider
-    ? Math.round((await systemInfoProvider.currentLoad()).currentLoad * 10) / 10
-    : calculateCpuUsage();
+  const cpuUsage = calculateCpuUsage();
 
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
@@ -339,18 +403,22 @@ ipcMain.handle('system:metrics', async () => {
 
   let gpuInfo = null;
   if (systemInfoProvider) {
-    const graphics = await systemInfoProvider.graphics();
-    if (graphics?.controllers?.length > 0) {
-      const controller = graphics.controllers[0];
-      gpuInfo = {
-        name: controller.model,
-        vendor: controller.vendor,
-        memoryTotal: controller.vram ? controller.vram * 1024 * 1024 : null,
-        memoryUsed: controller.vramUsed ? controller.vramUsed * 1024 * 1024 : null,
-        usage: typeof controller.utilizationGpu === 'number' ? controller.utilizationGpu : null,
-        driverVersion: controller.driverVersion,
-      };
+    if (!gpuInfoCache || now - gpuInfoCacheTimestamp > GPU_METRICS_TTL) {
+      const graphics = await systemInfoProvider.graphics();
+      if (graphics?.controllers?.length > 0) {
+        const controller = graphics.controllers[0];
+        gpuInfoCache = {
+          name: controller.model,
+          vendor: controller.vendor,
+          memoryTotal: controller.vram ? controller.vram * 1024 * 1024 : null,
+          memoryUsed: controller.vramUsed ? controller.vramUsed * 1024 * 1024 : null,
+          usage: typeof controller.utilizationGpu === 'number' ? controller.utilizationGpu : null,
+          driverVersion: controller.driverVersion,
+        };
+        gpuInfoCacheTimestamp = now;
+      }
     }
+    gpuInfo = gpuInfoCache;
   }
 
   if (!gpuInfo) {
@@ -371,11 +439,11 @@ ipcMain.handle('system:metrics', async () => {
     };
   }
 
-  let diskInfo = [];
-  let networkInfo = [];
-  let temperatureInfo = {};
+  let diskInfo = fullMetricsCache.disk || [];
+  let networkInfo = fullMetricsCache.network || [];
+  let temperatureInfo = fullMetricsCache.temperature || {};
 
-  if (systemInfoProvider) {
+  if (systemInfoProvider && (now - fullMetricsCache.timestamp > FULL_METRICS_TTL)) {
     const disks = await systemInfoProvider.fsSize();
     diskInfo = disks.map((disk) => ({
       mount: disk.mount,
@@ -397,6 +465,13 @@ ipcMain.handle('system:metrics', async () => {
     const temps = await systemInfoProvider.cpuTemperature();
     temperatureInfo = {
       cpu: typeof temps.main === 'number' ? temps.main : null,
+    };
+
+    fullMetricsCache = {
+      timestamp: now,
+      disk: diskInfo,
+      network: networkInfo,
+      temperature: temperatureInfo,
     };
   }
 
@@ -420,6 +495,24 @@ ipcMain.handle('system:metrics', async () => {
     uptime: os.uptime(),
     temperature: temperatureInfo,
   };
+});
+
+// Get file icon as data URL
+ipcMain.handle('system:icon', async (event, filePath) => {
+  try {
+    const image = await app.getFileIcon(filePath, { size: 'normal' });
+    return { success: true, path: filePath, dataUrl: image.toDataURL() };
+  } catch (error) {
+    return {
+      success: false,
+      path: filePath,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+});
+
+ipcMain.handle('system:shortcut', async (event, filePath) => {
+  return resolveWindowsShortcut(filePath);
 });
 
 // Check if path exists

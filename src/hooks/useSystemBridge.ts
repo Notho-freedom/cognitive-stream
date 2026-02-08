@@ -125,6 +125,16 @@ interface CognitiveBridge {
   delete: (path: string, options?: { recursive?: boolean }) => Promise<{ success: boolean; path: string; error?: string }>;
   getSystemInfo: () => Promise<SystemInfo>;
   getSystemMetrics: () => Promise<SystemMetrics>;
+  getFileIcon: (path: string) => Promise<{ success: boolean; path: string; dataUrl?: string; error?: string }>;
+  resolveShortcut: (path: string) => Promise<{
+    success: boolean;
+    path: string;
+    targetPath?: string | null;
+    iconLocation?: string | null;
+    arguments?: string | null;
+    workingDirectory?: string | null;
+    error?: string;
+  }>;
   minimize: () => void;
   maximize: () => void;
   close: () => void;
@@ -185,6 +195,20 @@ export function useSystemBridge() {
       };
     }
     return window.cognitiveBridge.getSystemMetrics();
+  }, []);
+
+  const getFileIcon = useCallback(async (path: string) => {
+    if (!window.cognitiveBridge) {
+      return { success: false, path, error: 'System bridge not available. Running in browser mode.' };
+    }
+    return window.cognitiveBridge.getFileIcon(path);
+  }, []);
+
+  const resolveShortcut = useCallback(async (path: string) => {
+    if (!window.cognitiveBridge) {
+      return { success: false, path, error: 'System bridge not available. Running in browser mode.' };
+    }
+    return window.cognitiveBridge.resolveShortcut(path);
   }, []);
 
   // Spawn process
@@ -289,6 +313,8 @@ export function useSystemBridge() {
     // Window
     window: windowControls,
     getSystemMetrics,
+    getFileIcon,
+    resolveShortcut,
   };
 }
 

@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('cognitiveBridge', {
   // ─────────────────────────────────────────────────────────────
   getSystemInfo: () => ipcRenderer.invoke('system:info'),
   getSystemMetrics: () => ipcRenderer.invoke('system:metrics'),
+  getFileIcon: (path) => ipcRenderer.invoke('system:icon', path),
+  resolveShortcut: (path) => ipcRenderer.invoke('system:shortcut', path),
 
   // ─────────────────────────────────────────────────────────────
   // Window Controls

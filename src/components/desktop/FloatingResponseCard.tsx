@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, type MouseEvent } from 'react';
+import { useEffect, useState, useRef, memo, type MouseEvent } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { FuturisticFrame } from '@/components/cognitive/FuturisticFrame';
@@ -41,7 +41,7 @@ const TYPE_CONFIG = {
  * Text, schemas, errors, thoughts — everything renders inside this card.
  * Handles scroll for large content and adapts width to content type.
  */
-export function FloatingResponseCard({
+export const FloatingResponseCard = memo(function FloatingResponseCard({
   card,
   onDismiss,
   onAction,
@@ -54,6 +54,8 @@ export function FloatingResponseCard({
   const [isComplete, setIsComplete] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const pendingPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   // Mark complete immediately if no streaming text
   useEffect(() => {
@@ -98,14 +100,26 @@ export function FloatingResponseCard({
       if (!dragRef.current) return;
       const dx = ev.clientX - dragRef.current.startX;
       const dy = ev.clientY - dragRef.current.startY;
-      onPositionChange(card.id, {
+      pendingPositionRef.current = {
         x: dragRef.current.origX + dx,
         y: dragRef.current.origY + dy,
-      });
+      };
+      if (rafRef.current === null) {
+        rafRef.current = window.requestAnimationFrame(() => {
+          rafRef.current = null;
+          if (pendingPositionRef.current) {
+            onPositionChange(card.id, pendingPositionRef.current);
+          }
+        });
+      }
     };
 
     const handleUp = () => {
       dragRef.current = null;
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
@@ -197,7 +211,7 @@ export function FloatingResponseCard({
       </div>
     </motion.div>
   );
-}
+});
 
 /* ── Sub-components ── */
 
