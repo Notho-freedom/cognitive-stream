@@ -1,199 +1,445 @@
+# Plan : Explorateur de Fichiers Complet + Fix Build
 
-# Objectif
-Rendre l’autonomie réellement “agentique” (comme Cursor/Lovable) en supprimant les causes structurelles d’échecs répétitifs et en faisant en sorte que le cerveau puisse détecter une erreur, la corriger (plan/step), réessayer, et continuer jusqu’à atteindre l’objectif — sans intervention manuelle.
+## Fix immédiat
 
----
+**useVoiceInput.ts** : Remplacer `window.SpeechRecognition` par un cast via `(window as any).SpeechRecognition` pour supprimer les erreurs TS2551.
 
-# Ce que montrent tes logs (diagnostic précis)
+## Explorateur de fichiers
 
-## 1) Erreur runtime “Unknown action: undefined” (uiBuilder / filesystem / system)
-Dans tes agents “capability-based” (UIBuilderAgent, FileSystemAgent, SystemAgent), l’**action est lue depuis `task.params.action`** :
+### Architecture
 
-- `UIBuilderAgent`: `const { action } = task.params`
-- `FileSystemAgent`: `const { action } = task.params`
-- `SystemAgent`: `const { action } = task.params`
+```text
+src/components/explorer/
+├── FileExplorer.tsx          # Composant principal (fenêtre complète)
+├── FileExplorerToolbar.tsx   # Barre d'outils (navigation, recherche, vue)
+├── FileExplorerSidebar.tsx   # Panneau latéral (accès rapides, disques, réseau)
+├── FileExplorerContent.tsx   # Zone principale (grille/liste de fichiers)
+├── FileExplorerBreadcrumb.tsx # Fil d'Ariane du chemin actuel
+├── FileExplorerStatusBar.tsx # Barre de statut (nb éléments, taille, espace disque)
+├── FileExplorerContextMenu.tsx # Menu contextuel (clic droit)
+├── FileExplorerPreview.tsx   # Panneau de prévisualisation (fichiers texte/image)
+└── useFileExplorer.ts        # Hook principal (état, navigation, opérations)
+```
 
-Mais `PlanExecutor` construit les tâches avec :
-- `createTask(step.agent, step.action, step.params, ...)`
+### Fonctionnalités complètes
 
-Donc **`step.action` se retrouve dans `task.action`**, pas dans `task.params.action`.
-Résultat : si le planner n’a pas mis `params.action`, alors `task.params.action === undefined` → “Unknown action: undefined”.
+**Navigation :**
 
-C’est exactement ce que tu vois sur `get_current_tab` :
-- la step a `action: "get_current_tab"`
-- mais `params: {}` → donc côté agent `action === undefined`.
+- Fil d'Ariane cliquable par segment
+- Boutons Précédent/Suivant/Parent (historique de navigation)
+- Barre d'adresse éditable (saisie directe d'un chemin)
+- Double-clic pour entrer dans un dossier ou ouvrir un fichier
 
-## 2) Auto-correction “voit l’erreur” mais ne la résout pas
-Tu as déjà un `IntelligentErrorResolver` capable de faire un `replace` quand l’erreur contient `Unknown action`.
-Mais même quand il remplace `get_current_tab` → `build`, il peut rester coincé si :
-- la correction ne **répare pas la forme attendue** (ex: injecter `params.action`)
-- ou si après remplacement on ne **re-valide pas** le step modifié (et on retombe dans un retry identique).
+**Panneau latéral (pages clés) :**
 
-## 3) L’autonomie “ne termine jamais” / impression de boucle
-Actuellement, le `AutoContinueEngine` est **instancié mais n’est pas le moteur réel** d’exécution :
-- `executePlan()` appelle `this.planExecutor.execute()` directement
-- `AutoContinueEngine.runUntilObjective()` n’est jamais utilisé ici
+- **Accès rapides** : Bureau, Documents, Téléchargements, Images, Musique, Vidéos
+- **Disques système** : Détection via `system:metrics` (C: D: etc. ou /dev/sdX sur Linux) avec barres d'espace utilisé
+- **Réseau** : Interfaces réseau détectées (info only, via metrics.network)
+- **Ce PC** : Nom machine, OS, architecture
 
-Donc l’autonomie est surtout un “journal/contrôle” mais pas un pilote décisionnel qui boucle intelligemment jusqu’au succès.
+**Barre d'outils :**
 
-## 4) Build error TS2739 (PlanValidator.ts)
-`AGENT_CAPABILITIES` est typé comme `Record<AgentType,...>` mais `AgentType` (dans `src/lib/brain/types.ts`) contient aussi :
-- `llm`, `planner`, `search`
+- Boutons navigation (back/forward/up/home)
+- Toggle vue grille / vue liste / vue détails
+- Recherche dans le dossier courant (grep via bridge)
+- Toggle fichiers cachés
+- Bouton nouveau dossier / nouveau fichier
+- Bouton actualiser
 
-Or `AGENT_CAPABILITIES` ne les définit pas → erreur de build.
+**Zone de contenu :**
 
----
+- 3 modes d'affichage : icônes (grille), liste compacte, détails (colonnes triables : nom, taille, date, type)
+- Tri par nom/taille/date (asc/desc)
+- Sélection multiple (Ctrl+clic, Shift+clic)
+- Icônes natives via `getFileIcon` du bridge
 
-# Principes de correction (décisions d’architecture)
-1) **Unifier le contrat d’exécution des agents** : une action doit être portée de manière cohérente.
-2) **Corriger dès le départ ET pendant l’exécution** : validation/correction initiale + correction runtime robuste.
-3) **Autonomie = boucle de contrôle réelle** : le moteur autonome doit piloter la progression (pas seulement logger).
-4) **Garde-fous anti-boucles** : limites de retries, détection de “same error repeating”, fallback deterministe, et “abort propre”.
+**Menu contextuel (clic droit) :**
 
----
+- Ouvrir / Ouvrir avec
+- Copier le chemin
+- Renommer
+- Supprimer (avec confirmation)
+- Nouveau dossier / Nouveau fichier
+- Propriétés (taille, dates, permissions)
 
-# Plan d’implémentation (séquencé)
+**Barre de statut :**
 
-## Étape A — Fix build TS2739 (immédiat, incontournable)
-### A1) Choix (le plus simple et robuste)
-Modifier le typing de `AGENT_CAPABILITIES` pour ne plus exiger tous les AgentType :
-- passer de `Record<AgentType, ...>` à `Partial<Record<AgentType, ...>>`
-- ou définir explicitement des capacités pour `llm`, `planner`, `search` (même vides)
+- Nombre d'éléments dans le dossier courant
+- Taille totale sélection
+- Espace disque du volume courant
 
-Recommandation : **Partial<Record<...>>** + ajout minimal de définitions `planner/search` si réellement utilisés par le planner.
+**Prévisualisation :**
 
-### A2) Option complémentaire (plus “propre”)
-Si `llm` n’est plus utilisé nulle part : le retirer d’`AgentType` dans `types.ts`.  
-Mais ça peut avoir des impacts ailleurs, donc on privilégie l’option A1.
+- Panneau droit togglable
+- Affiche le contenu des fichiers texte (< 100KB)
+- Affiche les métadonnées pour les autres
 
-Livrable : build OK.
+### Intégration desktop
 
----
+Le `FileExplorer` sera accessible :
 
-## Étape B — Unifier le contrat “action” des agents (supprime 80% des erreurs)
-### B1) Standardiser : “l’action = `task.action`”
-Modifier `UIBuilderAgent`, `FileSystemAgent`, `SystemAgent` pour utiliser :
-- `task.action` comme action principale
-- `task.params` uniquement pour les paramètres (data/path/command/etc.)
+1. Via la `DesktopCommandBar` (commande "explorateur" ou "ouvrir dossier X")
+2. Via double-clic sur un dossier dans `DesktopIconZone`
+3. Rendu comme une `FloatingResponseCard` de type spécial "explorer" (plus grande, redimensionnable)
 
-Exemple concret :
-- UIBuilderAgent: switch sur `task.action` (build/adapt/merge) au lieu de `task.params.action`
-- FileSystemAgent: switch sur `task.action` (read/write/list/…) au lieu de `task.params.action`
-- SystemAgent: switch sur `task.action` (exec/spawn/info) au lieu de `task.params.action`
+Un nouveau hook `useFileExplorer.ts` gèrera tout l'état (chemin courant, historique, sélection, opérations CRUD) en utilisant `useSystemBridge`.
 
-### B2) Ajuster les types params de ces agents
-Supprimer le champ `action` dans les interfaces Params, ou le rendre optionnel (fallback), pour éviter la confusion.
+### Ajouts IPC Electron
 
-### B3) Patch compat (au cas où des tâches anciennes envoient encore params.action)
-Pour ne pas casser :
-- si `task.action` est vide/undefined, fallback vers `task.params.action`
-- log “legacy action format used”
+Ajouter dans `electron/main.js` + `preload.js` :
 
-Livrable : plus de “Unknown action: undefined” causé par le mapping action/params.
+- `fs:rename` — renommer fichier/dossier
+- `fs:mkdir` — créer un dossier
+- `fs:stat` — obtenir les stats détaillées (permissions, dates creation/access/modif)
+- `fs:drives` — lister les disques montés (Windows: `wmic logicaldisk`, Linux: `df -h`, macOS: `diskutil list`)
+- `fs:copy` — copier fichier/dossier
 
----
+### Style
 
-## Étape C — Renforcer le PlanValidator + AutoCorrector pour refléter la réalité
-### C1) Mettre `requiredParams` en cohérence avec la vraie exécution
-Après Étape B, `requiredParams` doit vérifier ce qui compte réellement :
-- FS: `path` requis pour read/list/delete/exists/search, `content` requis pour write, etc.
-- System: `command` requis pour exec/spawn
-- UIBuilder: `data` requis, `context.previousSchema` requis si action=adapt
+Même design HUD/glassmorphic que le reste : `FuturisticFrame`, fond semi-transparent, accents cyan, animations framer-motion subtiles.
 
-### C2) Auto-correction doit corriger “action + params”
-Quand on mappe une action invalide (ex: `get_current_tab` → `build`):
-- mettre à jour `step.action`
-- et adapter `step.params` si nécessaire (ex: injecter `data` vide si absent, ou context si adapt, etc.)
-- si l’action d’origine était un “intent UI” non implémentable → basculer vers `thinker.respond` (expliquer + proposer alternative) plutôt que retry inutiles.
+## Fichiers impactés
 
-Livrable : un plan “corrigé” devient réellement exécutable.
+- `src/hooks/useVoiceInput.ts` — fix TS build
+- `electron/main.js` — nouveaux IPC handlers (rename, mkdir, stat, drives, copy)
+- `electron/preload.js` — exposer les nouvelles API
+- `src/hooks/useSystemBridge.ts` — ajouter les nouvelles méthodes
+- `src/components/explorer/*` — tous les composants explorateur (nouveaux)
+- `src/hooks/useFileExplorer.ts` — hook état explorateur (nouveau)
+- `src/components/desktop/DesktopWidgetShell.tsx` — intégrer l'explorateur
+- `src/components/desktop/DesktopIconZone.tsx` — ouvrir explorateur sur double-clic dossier  
+  
+  
+  
+  
+Ton plan est déjà solide — là on va le transformer en **système production-grade**, modulaire, scalable, et prêt pour évoluer vers un OS-like sérieux (SkyOS vibes 👀).
+  Je vais te restructurer ça comme une **archi + roadmap + contracts + edge cases**, façon dev senior qui prépare un truc qui peut tenir 2 ans sans refacto majeure.
+  ---
+  # 🧠 1. Vision (niveau système)
+  Ton explorateur = pas un composant UI  
+  👉 c’est un **module système** avec 3 couches :
+  ```text
+  UI Layer (React)
+  ↓
+  State Layer (hooks + store)
+  ↓
+  System Layer (Electron IPC + FS)
 
----
+  ```
+  Objectif :
+  - découplage total UI / logique
+  - testabilité
+  - extensibilité (plugins, cloud, remote FS plus tard)
+  ---
+  # 🧩 2. Architecture améliorée
+  ## 📁 Structure complète
+  ```text
+  src/
+  ├── components/explorer/
+  │   ├── FileExplorer.tsx
+  │   ├── layout/
+  │   │   ├── ExplorerLayout.tsx
+  │   │   ├── ExplorerSplitView.tsx   # resize panels
+  │   │   └── ExplorerPanel.tsx
+  │   │
+  │   ├── toolbar/
+  │   │   ├── FileExplorerToolbar.tsx
+  │   │   ├── AddressBar.tsx
+  │   │   └── SearchBar.tsx
+  │   │
+  │   ├── sidebar/
+  │   │   ├── FileExplorerSidebar.tsx
+  │   │   ├── SidebarSection.tsx
+  │   │   └── SidebarItem.tsx
+  │   │
+  │   ├── content/
+  │   │   ├── FileExplorerContent.tsx
+  │   │   ├── FileGridView.tsx
+  │   │   ├── FileListView.tsx
+  │   │   ├── FileDetailsView.tsx
+  │   │   └── FileItem.tsx
+  │   │
+  │   ├── preview/
+  │   │   ├── FileExplorerPreview.tsx
+  │   │   ├── TextPreview.tsx
+  │   │   ├── ImagePreview.tsx
+  │   │   └── UnsupportedPreview.tsx
+  │   │
+  │   ├── context/
+  │   │   ├── FileExplorerContextMenu.tsx
+  │   │   └── contextActions.ts
+  │   │
+  │   ├── status/
+  │   │   └── FileExplorerStatusBar.tsx
+  │   │
+  │   └── breadcrumb/
+  │       └── FileExplorerBreadcrumb.tsx
+  │
+  ├── hooks/
+  │   ├── useFileExplorer.ts
+  │   ├── useFileOperations.ts
+  │   ├── useFileSelection.ts
+  │   ├── useNavigationHistory.ts
+  │   └── useDirectoryWatcher.ts   # 🔥 temps réel
+  │
+  ├── services/
+  │   ├── fileSystem.service.ts
+  │   ├── fileCache.service.ts
+  │   ├── search.service.ts
+  │   └── icon.service.ts
+  │
+  ├── types/
+  │   └── explorer.types.ts
 
-## Étape D — Rendre la résolution runtime déterministe et non-bloquante
-### D1) Dans `PlanExecutor.handleStepFailureIntelligently` :
-Après un `replace` / `retry` avec `newStep` :
-- re-valider le step modifié via PlanValidator (au minimum `validateStep`)
-- si toujours invalide → fallback “skip si canFail, sinon abort” (pas de boucle infinie)
+  ```
+  ---
+  # ⚙️ 3. Modélisation des données (ULTRA important)
+  ## 📦 File Entity
+  ```ts
+  type FileEntity = {
+    id: string
+    name: string
+    path: string
+    type: 'file' | 'directory'
+    size: number
+    extension?: string
+    mimeType?: string
+    createdAt: number
+    updatedAt: number
+    accessedAt?: number
+    isHidden: boolean
+    isReadonly: boolean
+    permissions?: string
+    icon?: string
+  }
 
-### D2) Détection “same error repeating”
-Ajouter une règle : si (même stepId + même error substring) > N fois :
-- stop retry
-- force replace/skip/abort
+  ```
+  ---
+  ## 📂 Explorer State
+  ```ts
+  type ExplorerState = {
+    currentPath: string
+    files: FileEntity[]
+    selected: string[]
+    viewMode: 'grid' | 'list' | 'details'
+    sort: {
+      field: 'name' | 'size' | 'date'
+      order: 'asc' | 'desc'
+    }
+    history: {
+      back: string[]
+      forward: string[]
+    }
+    showHidden: boolean
+    previewFile?: FileEntity
+  }
 
-Livrable : fin des boucles “retrying → failed → retrying …”.
+  ```
+  ---
+  # 🔌 4. IPC Electron (version PRO)
+  Tu avais la base — voici la version robuste :
+  ## 📡 FS Core
+  ```text
+  fs:readDir
+  fs:readFile
+  fs:writeFile
+  fs:delete
+  fs:rename
+  fs:mkdir
+  fs:copy
+  fs:move   ← 🔥 important
+  fs:stat
+  fs:exists
 
----
+  ```
+  ---
+  ## 💽 System
+  ```text
+  fs:drives
+  system:metrics
+  system:info
 
-## Étape E — Autonomie réelle : brancher AutoContinueEngine comme pilote
-Actuellement, `AutoContinueEngine` n’est pas le chef d’orchestre. Deux options :
+  ```
+  ---
+  ## 🔍 Search (optimisé)
+  ```text
+  fs:search
 
-### Option E1 (recommandée, minimal change) : Autonomie pilote “phase par phase”
-- Ajouter dans PlanExecutor une API “executeNextPhase() public” ou “executeOneTick()”
-- Dans CognitiveBrain.executePlan():
-  - faire une boucle pilotée par `AutoContinueEngine.runUntilObjective(...)`
-  - où `executeStep(step)` appelle PlanExecutor pour exécuter la step (ou la phase correspondante)
-  - AutoContinueEngine décide : continuer / pause / skip / confirm destructif
+  ```
+  👉 backend :
+  - Windows → `where /r`
+  - Linux/mac → `find` ou `ripgrep` (🔥 très rapide)
+  ---
+  ## 👀 Watcher (temps réel 🔥)
+  ```text
+  fs:watch
+  fs:unwatch
 
-### Option E2 : Supprimer AutoContinueEngine et intégrer ses règles dans PlanExecutor
-- PlanExecutor devient l’unique boucle d’autonomie (plus simple mentalement)
-- CognitiveBrain ne fait que configurer (max actions, guardrails, confirmations)
+  ```
+  👉 basé sur :
+  - `chokidar` (cross-platform)
+  ---
+  # 🧠 5. Hooks spécialisés (clean architecture)
+  ## 🧭 useNavigationHistory
+  - back()
+  - forward()
+  - push(path)
+  ---
+  ## 📂 useFileSelection
+  - select(fileId)
+  - multiSelect()
+  - rangeSelect()
+  - clear()
+  ---
+  ## 🛠 useFileOperations
+  - rename()
+  - delete()
+  - copy()
+  - move()
+  - createFile()
+  - createFolder()
+  ---
+  ## 👁 useDirectoryWatcher
+  - sync auto quand fichiers changent
+  - évite bouton refresh inutile
+  ---
+  # ⚡ 6. Performance (clé pour UX fluide)
+  ## 🚀 Obligatoire
+  - Virtualisation (🔥 énorme gain)
+    - `react-virtual`
+  - Debounce search (300ms)
+  - Cache fichiers
+  ---
+  ## 🧠 Cache Strategy
+  ```text
+  LRU Cache (par path)
+  TTL: 5-10 secondes
 
-Recommandation : **E2** à terme, mais **E1** est plus rapide à stabiliser maintenant.
+  ```
+  ---
+  ## 📦 Lazy loading
+  - preview uniquement quand sélection
+  - icônes chargées async
+  ---
+  # 🎯 7. UX avancée (ce qui fait la diff)
+  ## 🖱 Interactions
+  - Drag & Drop (move files)
+  - Rename inline (F2)
+  - Delete → confirmation + undo (🔥)
+  - Double-click intelligent
+  ---
+  ## ⌨️ Shortcuts
+  ```text
+  Ctrl + C → copy
+  Ctrl + V → paste
+  Ctrl + X → cut
+  Del → delete
+  F2 → rename
+  Ctrl + A → select all
 
-Livrable : l’autonomie est une vraie boucle de contrôle jusqu’à “objective reached” ou échec propre.
+  ```
+  ---
+  ## 🧠 Smart features
+  - ouverture par défaut selon extension
+  - historique persistant (localStorage)
+  - favoris personnalisés
+  ---
+  # 🧩 8. Preview Engine (extensible)
+  ```ts
+  const previewRegistry = {
+    'text/plain': TextPreview,
+    'image/png': ImagePreview,
+  }
 
----
+  ```
+  👉 futur :
+  - PDF
+  - vidéo
+  - audio
+  ---
+  # 🔐 9. Sécurité (souvent oublié ⚠️)
+  - sandbox paths (no access root critique)
+  - validation côté main process
+  - sanitize paths
+  - limiter taille fichiers preview (<100KB ok)
+  ---
+  # 🎨 10. UI / Design System
+  - glassmorphism OK mais :  
+  👉 ajoute :
+  - états hover/active ultra clairs
+  - skeleton loaders
+  - transitions ultra fluides (framer-motion)
+  ---
+  # 🧪 11. Tests (niveau pro)
+  ## Unit
+  - hooks
+  - services
+  ## Integration
+  - navigation
+  - file ops
+  ## E2E
+  - ouvrir dossier
+  - supprimer fichier
+  ---
+  # 🚀 12. Roadmap réaliste (par étapes)
+  ## Phase 1 (MVP propre)
+  - navigation
+  - affichage fichiers
+  - sélection
+  - open dossier
+  ---
+  ## Phase 2
+  - CRUD (rename, delete, create)
+  - context menu
+  - preview simple
+  ---
+  ## Phase 3
+  - search
+  - tri
+  - vues multiples
+  ---
+  ## Phase 4
+  - watcher temps réel
+  - drag & drop
+  ---
+  ## Phase 5 (🔥 avancé)
+  - multi-tabs
+  - cloud (Google Drive, etc.)
+  - remote FS (SSH)
+  ---
+  # 🧠 13. Intégration SkyOS (vision future)
+  Ton explorer devient :
+  ```text
+  FileSystem API central
+  → utilisé par toutes les apps
 
-## Étape F — Focus mode et “initiative”
-Ton attente “comme Cursor” implique :
-- si une step échoue, le système doit “chercher la cause” puis “appliquer un patch”
-- pas juste retry/skip
+  ```
+  👉 ex :
+  - Elite → envoie fichiers
+  - générateur doc → lit repos
+  - desktop → drag files
+  ---
+  # ⚡ 14. Fix immédiat (TS)
+  Ton fix est bon mais version propre :
+  ```ts
+  const SpeechRecognition =
+    (window as any).SpeechRecognition ||
+    (window as any).webkitSpeechRecognition
 
-Ce que je vais ajouter (sans surcomplexifier) :
-1) Une catégorie d’erreurs “structurelles” (invalid action, missing params) → fix déterministe (validator/corrector)
-2) Une catégorie d’erreurs “environnement” (Electron bridge absent, permission) → adaptation de plan (remplacer FS/System par Thinker + UI instructions)
-3) Une catégorie d’erreurs “fonctionnelles” (ex: commande shell échoue) → ThinkerAgent analyze + propose alternative command → replace step
-
-Livrable : il “voit l’erreur” et agit réellement (pas uniquement logging).
-
----
-
-# Fichiers impactés (prévision)
-- `src/lib/brain/PlanValidator.ts`
-  - Fix TS2739 (Partial<Record> ou ajout capacités llm/planner/search)
-  - Ajuster requiredParams + autocorrect “action+params”
-- `src/lib/brain/PlanExecutor.ts`
-  - Validation step après correction runtime
-  - Anti-loop + “same error repeating”
-  - (optionnel) API tick/phase pour autonomie
-- `src/lib/brain/CognitiveBrain.ts`
-  - Brancher AutoContinueEngine réellement (ou simplifier et le retirer)
-- `src/lib/brain/agents/UIBuilderAgent.ts`
-  - Switch sur `task.action` (+ fallback legacy)
-- `src/lib/brain/agents/FileSystemAgent.ts`
-  - Switch sur `task.action` (+ fallback legacy)
-- `src/lib/brain/agents/SystemAgent.ts`
-  - Switch sur `task.action` (+ fallback legacy)
-- (optionnel) `src/lib/brain/types.ts`
-  - clarifier AgentType si besoin (mais éviter si possible)
-
----
-
-# Critères d’acceptation (tests concrets à faire après)
-1) Un plan contenant une step uiBuilder “get_current_tab” ne produit plus “Unknown action: undefined” :
-   - soit corrigé en “build”
-   - soit remplacé par thinker step si non applicable
-2) Si une step est invalidable, elle est corrigée avant exécution (validateAndCorrectPlan), ET si elle se modifie runtime elle est re-validée.
-3) Autonomie : sur une commande complexe, le cerveau enchaîne sans clics et termine :
-   - succès total, ou
-   - échec propre (abort) avec résumé clair et journal exploitable
-4) Aucune boucle infinie de retry sur la même erreur.
-
----
-
-# Risques / points d’attention
-- Cette correction change un contrat implicite “action dans params” : on maintiendra un fallback pour compat.
-- Si Electron bridge est souvent indisponible (web), l’autonomie doit apprendre à “adapter” (ne pas planifier du filesystem/system si non dispo).
-  - On ajoutera un “environmentInfo.systemAvailable/isElectron” au prompt du planner (si pas déjà).
-
+  ```
+  ---
+  # 💡 15. Upgrade ultime (vision futuriste)
+  👉 transforme ton explorer en :
+  ## 🧠 "Smart Explorer"
+  - recherche IA ("mes fichiers récents importants")
+  - tags automatiques
+  - preview enrichie
+  - résumé fichiers texte
+  ---
+  # 🏁 Conclusion
+  Ton plan initial = très bon  
+  👉 mais maintenant tu as :
+  - une **archi modulaire**
+  - une **logique scalable**
+  - une **vision OS-level**
+  - une **roadmap claire**  
