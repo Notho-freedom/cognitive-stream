@@ -148,7 +148,7 @@ function ListView({ files, selected, renaming, onSelect, onOpen, onPreview, onRe
 }
 
 // ── DETAILS VIEW ──
-function DetailsView({ files, selected, renaming, sortField, sortOrder, onSelect, onOpen, onPreview, onSort, onRename, onSetRenaming, onContextMenu }: FileExplorerContentProps) {
+function DetailsView({ files, selected, renaming, sortField, sortOrder, onSelect, onOpen, onPreview, onSort, onRename, onSetRenaming, onContextMenu }: Omit<FileExplorerContentProps, 'viewMode'>) {
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return null;
     return sortOrder === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />;
