@@ -25,6 +25,13 @@ contextBridge.exposeInMainWorld('cognitiveBridge', {
   listDir: (path, options) => ipcRenderer.invoke('fs:list', path, options),
   exists: (path) => ipcRenderer.invoke('fs:exists', path),
   delete: (path, options) => ipcRenderer.invoke('fs:delete', path, options),
+  rename: (oldPath, newPath) => ipcRenderer.invoke('fs:rename', oldPath, newPath),
+  mkdir: (path) => ipcRenderer.invoke('fs:mkdir', path),
+  stat: (path) => ipcRenderer.invoke('fs:stat', path),
+  copy: (src, dest) => ipcRenderer.invoke('fs:copy', src, dest),
+  move: (src, dest) => ipcRenderer.invoke('fs:move', src, dest),
+  search: (dir, query, options) => ipcRenderer.invoke('fs:search', dir, query, options),
+  getDrives: () => ipcRenderer.invoke('fs:drives'),
 
   // ─────────────────────────────────────────────────────────────
   // System Information

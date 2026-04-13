@@ -11,6 +11,7 @@ interface DesktopIconZoneProps {
   error: string | null;
   surfaceOpacity: number;
   onMouseStateChange?: (inside: boolean) => void;
+  onOpenExplorer?: (path: string) => void;
 }
 
 type IconPosition = { x: number; y: number };
@@ -28,6 +29,7 @@ export function DesktopIconZone({
   error,
   surfaceOpacity,
   onMouseStateChange,
+  onOpenExplorer,
 }: DesktopIconZoneProps) {
   const { exec, systemInfo, getFileIcon, resolveShortcut } = useSystemBridge();
   const [iconCache, setIconCache] = useState<Record<string, string | null>>({});
@@ -121,6 +123,11 @@ export function DesktopIconZone({
   }, [sortedIcons, getFileIcon, resolveIconPath]);
 
   const handleOpen = useCallback(async (icon: DesktopIcon) => {
+    // If it's a directory, open in our explorer
+    if (icon.isDirectory && onOpenExplorer) {
+      onOpenExplorer(icon.path);
+      return;
+    }
     if (!systemInfo?.platform) return;
     if (systemInfo.platform === 'win32') {
       await exec(`Start-Process -FilePath "${icon.path}"`);
@@ -131,7 +138,7 @@ export function DesktopIconZone({
       return;
     }
     await exec(`xdg-open "${icon.path}"`);
-  }, [exec, systemInfo?.platform]);
+  }, [exec, systemInfo?.platform, onOpenExplorer]);
 
   return (
     <div

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-type SpeechRecognitionType = typeof window.SpeechRecognition;
+type SpeechRecognitionType = any;
 
 type SpeechRecognitionResultLike = {
   isFinal: boolean;
@@ -54,7 +54,7 @@ export function useVoiceInput({ onFinalTranscript, language = 'fr-FR' }: VoiceIn
   });
 
   useEffect(() => {
-    const Recognition = ((window as unknown as { webkitSpeechRecognition?: SpeechRecognitionType }).webkitSpeechRecognition || window.SpeechRecognition) as
+    const Recognition = ((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition) as
       | SpeechRecognitionConstructor
       | undefined;
     if (!Recognition) {

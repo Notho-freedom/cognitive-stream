@@ -19,6 +19,7 @@ import { DesktopCommandBar } from './DesktopCommandBar';
 import { FloatingResponseCard } from './FloatingResponseCard';
 import { DesktopSidePanel } from './DesktopSidePanel';
 import { DesktopIconZone } from './DesktopIconZone';
+import { FileExplorer } from '@/components/explorer/FileExplorer';
 
 // Mapping des modes du cerveau
 const brainModeLabels: Record<string, string> = {
@@ -44,6 +45,8 @@ function DesktopWidgetShellInner() {
   const floatingCards = useFloatingCards();
   const activeSchemaCardIdRef = useRef<string | null>(null);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [explorerOpen, setExplorerOpen] = useState(false);
+  const [explorerPath, setExplorerPath] = useState<string | undefined>();
   const [panelTab, setPanelTab] = useState<'system' | 'settings'>('system');
   const [surfaceOpacity, setSurfaceOpacity] = useState(0.75);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -306,7 +309,20 @@ function DesktopWidgetShellInner() {
         error={desktopIcons.error}
         surfaceOpacity={surfaceOpacity}
         onMouseStateChange={handleMouseState}
+        onOpenExplorer={(path) => { setExplorerPath(path); setExplorerOpen(true); }}
       />
+
+      {/* File Explorer */}
+      <AnimatePresence>
+        {explorerOpen && (
+          <FileExplorer
+            initialPath={explorerPath}
+            onClose={() => setExplorerOpen(false)}
+            onMouseStateChange={handleMouseState}
+            surfaceOpacity={surfaceOpacity}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Side Panel — centre droit */}
       <DesktopSidePanel
