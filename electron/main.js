@@ -555,6 +555,114 @@ ipcMain.handle('fs:delete', async (event, filePath, options = {}) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// ENHANCED FS — rename, mkdir, stat, copy, move, search
+// ═══════════════════════════════════════════════════════════════
+
+function resolveTilde(p) {
+  return p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p;
+}
+
+ipcMain.handle('fs:rename', async (event, oldPath, newPath) => {
+  try {
+    fs.renameSync(resolveTilde(oldPath), resolveTilde(newPath));
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('fs:mkdir', async (event, dirPath) => {
+  try {
+    fs.mkdirSync(resolveTilde(dirPath), { recursive: true });
+    return { success: true, path: resolveTilde(dirPath) };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('fs:stat', async (event, filePath) => {
+  try {
+    const resolved = resolveTilde(filePath);
+    const stats = fs.statSync(resolved);
+    return {
+      success: true,
+      path: resolved,
+      size: stats.size,
+      isDirectory: stats.isDirectory(),
+      isFile: stats.isFile(),
+      createdAt: stats.birthtime,
+      modifiedAt: stats.mtime,
+      accessedAt: stats.atime,
+      permissions: stats.mode.toString(8),
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('fs:copy', async (event, src, dest) => {
+  try {
+    const resolvedSrc = resolveTilde(src);
+    const resolvedDest = resolveTilde(dest);
+    const stats = fs.statSync(resolvedSrc);
+    if (stats.isDirectory()) {
+      fs.cpSync(resolvedSrc, resolvedDest, { recursive: true });
+    } else {
+      fs.copyFileSync(resolvedSrc, resolvedDest);
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('fs:move', async (event, src, dest) => {
+  try {
+    fs.renameSync(resolveTilde(src), resolveTilde(dest));
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('fs:search', async (event, dirPath, query, options = {}) => {
+  return new Promise((resolve) => {
+    const resolved = resolveTilde(dirPath);
+    const maxResults = options.maxResults || 100;
+    let cmd;
+    if (process.platform === 'win32') {
+      cmd = `Get-ChildItem -Path "${resolved}" -Recurse -Filter "*${query}*" -ErrorAction SilentlyContinue | Select-Object -First ${maxResults} | ForEach-Object { $_.FullName }`;
+    } else {
+      cmd = `find "${resolved}" -maxdepth 5 -iname "*${query}*" 2>/dev/null | head -${maxResults}`;
+    }
+    exec(cmd, { timeout: 15000, shell: process.platform === 'win32' ? 'powershell.exe' : '/bin/bash' }, (error, stdout) => {
+      const results = stdout.toString().trim().split('\n').filter(Boolean);
+      resolve({ success: true, results });
+    });
+  });
+});
+
+ipcMain.handle('fs:drives', async () => {
+  if (systemInfoProvider) {
+    try {
+      const disks = await systemInfoProvider.fsSize();
+      return {
+        success: true,
+        drives: disks.map(d => ({
+          mount: d.mount,
+          total: d.size,
+          used: d.used,
+          usage: d.use,
+          fsType: d.type,
+          label: d.fs,
+        })),
+      };
+    } catch {}
+  }
+  return { success: true, drives: [] };
+});
+
 // Window controls
 ipcMain.on('window:minimize', () => mainWindow?.minimize());
 ipcMain.on('window:maximize', () => {
