@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-type SpeechRecognitionType = typeof (window as any).SpeechRecognition;
+type SpeechRecognitionType = any;
 
 type SpeechRecognitionResultLike = {
   isFinal: boolean;
