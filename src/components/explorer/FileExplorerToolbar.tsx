@@ -5,6 +5,7 @@ import {
   Grid3X3, List, Columns3, Eye, EyeOff, FolderPlus, FilePlus,
 } from 'lucide-react';
 import type { ViewMode } from '@/types/explorer.types';
+import { QUICK_ACCESS_PATHS, isVirtualExplorerPath } from '@/types/explorer.types';
 
 interface FileExplorerToolbarProps {
   viewMode: ViewMode;
@@ -26,6 +27,7 @@ interface FileExplorerToolbarProps {
   onNewFolder: () => void;
   onNewFile: () => void;
   onNavigate: (path: string) => void;
+  isVirtualView?: boolean;
 }
 
 export function FileExplorerToolbar({
@@ -33,13 +35,17 @@ export function FileExplorerToolbar({
   canGoBack, canGoForward, currentPath,
   onViewModeChange, onToggleHidden, onTogglePreview, onSearchChange,
   onGoBack, onGoForward, onGoUp, onGoHome, onRefresh,
-  onNewFolder, onNewFile, onNavigate,
+  onNewFolder, onNewFile, onNavigate, isVirtualView,
 }: FileExplorerToolbarProps) {
   const handlePathKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       onNavigate((e.target as HTMLInputElement).value);
     }
   }, [onNavigate]);
+
+  const displayPath = isVirtualExplorerPath(currentPath)
+    ? currentPath === QUICK_ACCESS_PATHS.network ? 'Réseau' : 'Ce PC'
+    : currentPath;
 
   return (
     <div className="flex items-center gap-1 p-2 border-b border-intent-primary/10">
@@ -56,8 +62,8 @@ export function FileExplorerToolbar({
       <div className="flex-1 mx-2">
         <input
           type="text"
-          defaultValue={currentPath}
-          key={currentPath}
+          defaultValue={displayPath}
+          key={displayPath}
           onKeyDown={handlePathKeyDown}
           className="w-full bg-surface-deep/80 border border-intent-primary/20 text-text-primary text-[11px] px-2 py-1 rounded-none font-mono focus:border-intent-primary/50 focus:outline-none"
           style={{ clipPath: 'polygon(4px 0%, 100% 0%, calc(100% - 4px) 100%, 0% 100%)' }}
@@ -98,8 +104,8 @@ export function FileExplorerToolbar({
       <div className="w-px h-5 bg-intent-primary/15 mx-1" />
 
       {/* Create */}
-      <ToolBtn onClick={onNewFolder} title="Nouveau dossier"><FolderPlus className="w-3.5 h-3.5" /></ToolBtn>
-      <ToolBtn onClick={onNewFile} title="Nouveau fichier"><FilePlus className="w-3.5 h-3.5" /></ToolBtn>
+      <ToolBtn disabled={isVirtualView} onClick={onNewFolder} title="Nouveau dossier"><FolderPlus className="w-3.5 h-3.5" /></ToolBtn>
+      <ToolBtn disabled={isVirtualView} onClick={onNewFile} title="Nouveau fichier"><FilePlus className="w-3.5 h-3.5" /></ToolBtn>
     </div>
   );
 }

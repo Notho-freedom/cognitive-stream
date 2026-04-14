@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, webContents } = require('electron');
 const path = require('path');
-const { spawn, exec } = require('child_process');
+const { spawn, exec, execFile, execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 let systemInfoProvider = null;
 
 try {
@@ -24,6 +25,112 @@ let fullMetricsCache = {
 
 const FULL_METRICS_TTL = 8000;
 const GPU_METRICS_TTL = 30000;
+const SHELL_OPEN_FLAG = '--shell-open';
+const SHELL_OPEN_HOME_FLAG = '--shell-open-home';
+const LEGACY_WINDOWS_EXPLORER_CLSID = '{52205fd8-5dfb-447d-801a-d0b52f2e83e1}';
+const EXPLORER_INTEGRATION_VERSION = 3;
+const EXPLORER_SHELL_OWNER = 'cognitive-stream';
+const DIR_CACHE_TTL_MS = 5000;
+const THIS_PC_CACHE_TTL_MS = 15000;
+const NETWORK_CACHE_TTL_MS = 30000;
+const ICON_PATH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const ICON_EXTENSION_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const POWERSHELL_TIMEOUT_MS = 2500;
+const EXPLORER_SETTINGS_DEFAULTS = {
+  explorerIntegrationEnabled: true,
+  explorerIntegrationMode: 'global',
+};
+
+let explorerSettingsPath = null;
+let shellLauncherScriptPath = null;
+let shellLauncherStatePath = null;
+let explorerCacheRootPath = null;
+let rendererExplorerChannelReady = false;
+const pendingExplorerOpenRequests = [];
+const systemIconCache = new Map();
+const extensionIconCache = new Map();
+const directoryWatchers = new Map();
+const layeredCacheMemory = new Map();
+
+function getDefaultExplorerPath() {
+  return 'virtual:this-pc';
+}
+
+function getDirectoryWatcherKey(ownerId, dirPath) {
+  return `${ownerId}:${dirPath}`;
+}
+
+function stopDirectoryWatcher(watcherKey) {
+  const watcherEntry = directoryWatchers.get(watcherKey);
+  if (!watcherEntry) return;
+
+  if (watcherEntry.timeout) {
+    clearTimeout(watcherEntry.timeout);
+  }
+
+  try {
+    watcherEntry.watcher.close();
+  } catch (error) {
+    console.warn('[FSWatch] Failed to close watcher', error);
+  }
+
+  directoryWatchers.delete(watcherKey);
+}
+
+function stopDirectoryWatchersForOwner(ownerId) {
+  for (const [watcherKey, watcherEntry] of directoryWatchers.entries()) {
+    if (watcherEntry.ownerId === ownerId) {
+      stopDirectoryWatcher(watcherKey);
+    }
+  }
+}
+
+function emitDirectoryWatchEvent(ownerId, payload) {
+  const ownerContents = webContents.fromId(ownerId);
+  if (ownerContents && !ownerContents.isDestroyed()) {
+    ownerContents.send('fs:watch-event', payload);
+  }
+}
+
+function getExplorerSettingsDefaults() {
+  return {
+    ...EXPLORER_SETTINGS_DEFAULTS,
+  };
+}
+
+function parseShellLaunchArgs(argv = []) {
+  const shellOpenIndex = argv.indexOf(SHELL_OPEN_FLAG);
+  if (shellOpenIndex >= 0) {
+    return {
+      isShellRequest: true,
+      targetPath: argv[shellOpenIndex + 1] || null,
+      source: 'folder',
+    };
+  }
+
+  if (argv.includes(SHELL_OPEN_HOME_FLAG)) {
+    return {
+      isShellRequest: true,
+      targetPath: null,
+      source: 'hotkey',
+    };
+  }
+
+  return {
+    isShellRequest: false,
+    targetPath: null,
+    source: null,
+  };
+}
+
+const initialShellLaunch = parseShellLaunchArgs(process.argv);
+const hasSingleInstanceLock = app.requestSingleInstanceLock({
+  shellLaunch: initialShellLaunch,
+});
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+}
 
 function escapePowerShellString(value) {
   return value.replace(/'/g, "''");
@@ -85,6 +192,777 @@ let mainWindow;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
+function runPowerShell(script, options = {}) {
+  return execFileSync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+    {
+      encoding: 'utf8',
+      windowsHide: true,
+      ...options,
+    }
+  );
+}
+
+function runPowerShellAsync(script, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: options.timeout ?? POWERSHELL_TIMEOUT_MS,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        if (stderr && stderr.trim()) {
+          reject(new Error(stderr.trim()));
+          return;
+        }
+
+        resolve(stdout);
+      }
+    );
+  });
+}
+
+function ensureDirectory(dirPath) {
+  if (!dirPath) return;
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+}
+
+function hashCacheKey(value) {
+  return crypto.createHash('sha1').update(String(value)).digest('hex');
+}
+
+function getExplorerCacheFilePath(cacheKey) {
+  if (!explorerCacheRootPath) return null;
+  return path.join(explorerCacheRootPath, `${hashCacheKey(cacheKey)}.json`);
+}
+
+function getLayeredCacheEntry(cacheKey) {
+  return layeredCacheMemory.get(cacheKey) || null;
+}
+
+function setLayeredCacheEntry(cacheKey, entry) {
+  layeredCacheMemory.set(cacheKey, entry);
+}
+
+function deleteLayeredCacheEntry(cacheKey) {
+  layeredCacheMemory.delete(cacheKey);
+}
+
+function normalizePathArgument(targetPath) {
+  if (!targetPath) return null;
+  return targetPath.replace(/^"(.*)"$/, '$1').trim();
+}
+
+function openWithWindowsExplorer(targetPath) {
+  const normalizedTarget = normalizePathArgument(targetPath);
+  const args = normalizedTarget ? [normalizedTarget] : [];
+  const child = spawn('explorer.exe', args, {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+}
+
+function focusMainWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.showInactive?.();
+  mainWindow.focus();
+}
+
+function enqueueExplorerOpen(targetPath, source = 'folder') {
+  const nextPath = normalizePathArgument(targetPath) || getDefaultExplorerPath();
+  pendingExplorerOpenRequests.push({
+    path: nextPath,
+    source,
+    timestamp: Date.now(),
+  });
+  flushExplorerOpenQueue();
+}
+
+function flushExplorerOpenQueue() {
+  if (!mainWindow || !rendererExplorerChannelReady || pendingExplorerOpenRequests.length === 0) {
+    return;
+  }
+
+  while (pendingExplorerOpenRequests.length > 0) {
+    const payload = pendingExplorerOpenRequests.shift();
+    mainWindow.webContents.send('explorer:open-request', payload);
+  }
+}
+
+function setRegistryValue(key, valueName, value, type = 'String') {
+  const registryPath = `Registry::${key}`;
+  const propertyName = valueName === '(default)' ? '(default)' : valueName;
+  const script = `
+$path = '${escapePowerShellString(registryPath)}'
+New-Item -Path $path -Force | Out-Null
+New-ItemProperty -LiteralPath $path -Name '${escapePowerShellString(propertyName)}' -Value '${escapePowerShellString(String(value))}' -PropertyType ${type} -Force | Out-Null
+`;
+
+  runPowerShell(script);
+}
+
+function removeRegistryValue(key, valueName) {
+  const registryPath = `Registry::${key}`;
+  const propertyName = valueName === '(default)' ? '(default)' : valueName;
+  const script = `
+$path = '${escapePowerShellString(registryPath)}'
+if (Test-Path -LiteralPath $path) {
+  try {
+    Remove-ItemProperty -LiteralPath $path -Name '${escapePowerShellString(propertyName)}' -ErrorAction Stop
+  } catch {}
+}
+`;
+
+  runPowerShell(script);
+}
+
+function removeRegistryKey(key) {
+  const registryPath = `Registry::${key}`;
+  const script = `
+$path = '${escapePowerShellString(registryPath)}'
+if (Test-Path -LiteralPath $path) {
+  Remove-Item -LiteralPath $path -Recurse -Force
+}
+`;
+
+  runPowerShell(script);
+}
+
+function cleanShellIntegrationArtifacts() {
+  const legacyCachePath = path.join(app.getPath('userData'), 'shell-integration-cache.json');
+  if (fs.existsSync(legacyCachePath)) {
+    try {
+      fs.unlinkSync(legacyCachePath);
+    } catch (error) {
+      console.warn('[ShellIntegration] Failed to remove legacy cache', error);
+    }
+  }
+}
+
+function refreshWindowsShellAssociations() {
+  const script = `
+$signature = @"
+using System;
+using System.Runtime.InteropServices;
+public static class Shell32 {
+  [DllImport("shell32.dll")]
+  public static extern void SHChangeNotify(int wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);
+}
+"@
+Add-Type -TypeDefinition $signature -ErrorAction SilentlyContinue | Out-Null
+[Shell32]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
+`;
+
+  runPowerShell(script);
+}
+
+function readJsonFile(filePath, fallbackValue) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return fallbackValue;
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    console.warn('[ExplorerSettings] Failed to parse JSON file', filePath, error);
+    return fallbackValue;
+  }
+}
+
+function writeJsonFile(filePath, value) {
+  if (!filePath) return;
+  ensureDirectory(path.dirname(filePath));
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf8');
+}
+
+function parseCacheEnvelope(rawValue) {
+  if (!rawValue || typeof rawValue !== 'object') return null;
+  if (!('value' in rawValue) || typeof rawValue.savedAt !== 'number') return null;
+  return rawValue;
+}
+
+function isCacheFresh(envelope, ttlMs) {
+  if (!envelope) return false;
+  return Date.now() - envelope.savedAt <= ttlMs;
+}
+
+function getCacheResultFromEnvelope(envelope, source, status = 'ready') {
+  if (!envelope) return null;
+  return {
+    success: true,
+    data: envelope.value,
+    status,
+    source,
+    lastUpdatedAt: envelope.savedAt,
+  };
+}
+
+async function getRedisCacheEnvelope(cacheKey) {
+  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (!redisUrl || !redisToken) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(redisUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${redisToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(['GET', cacheKey]),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = await response.json();
+    const rawValue = typeof payload?.result === 'string' ? payload.result : null;
+    if (!rawValue) return null;
+    return parseCacheEnvelope(JSON.parse(rawValue));
+  } catch (error) {
+    return null;
+  }
+}
+
+async function setRedisCacheEnvelope(cacheKey, envelope, ttlMs) {
+  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (!redisUrl || !redisToken) {
+    return;
+  }
+
+  try {
+    await fetch(redisUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${redisToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(['SETEX', cacheKey, Math.max(1, Math.ceil(ttlMs / 1000)), JSON.stringify(envelope)]),
+    });
+  } catch (error) {
+    // Redis remains best-effort and must never block explorer rendering.
+  }
+}
+
+async function deleteRedisCacheEnvelope(cacheKey) {
+  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (!redisUrl || !redisToken) {
+    return;
+  }
+
+  try {
+    await fetch(redisUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${redisToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(['DEL', cacheKey]),
+    });
+  } catch (error) {
+    // Best effort only.
+  }
+}
+
+async function readLayeredCache(cacheKey, ttlMs) {
+  const memoryEntry = parseCacheEnvelope(getLayeredCacheEntry(cacheKey));
+  if (isCacheFresh(memoryEntry, ttlMs)) {
+    return getCacheResultFromEnvelope(memoryEntry, 'memory');
+  }
+
+  const cacheFilePath = getExplorerCacheFilePath(cacheKey);
+  const diskEntry = parseCacheEnvelope(readJsonFile(cacheFilePath, null));
+  if (isCacheFresh(diskEntry, ttlMs)) {
+    setLayeredCacheEntry(cacheKey, diskEntry);
+    return getCacheResultFromEnvelope(diskEntry, 'disk');
+  }
+
+  const redisEntry = await getRedisCacheEnvelope(cacheKey);
+  if (isCacheFresh(redisEntry, ttlMs)) {
+    setLayeredCacheEntry(cacheKey, redisEntry);
+    if (cacheFilePath) {
+      writeJsonFile(cacheFilePath, redisEntry);
+    }
+    return getCacheResultFromEnvelope(redisEntry, 'redis');
+  }
+
+  return null;
+}
+
+async function readAnyLayeredCache(cacheKey) {
+  const memoryEntry = parseCacheEnvelope(getLayeredCacheEntry(cacheKey));
+  if (memoryEntry) {
+    return getCacheResultFromEnvelope(memoryEntry, 'memory', 'stale');
+  }
+
+  const cacheFilePath = getExplorerCacheFilePath(cacheKey);
+  const diskEntry = parseCacheEnvelope(readJsonFile(cacheFilePath, null));
+  if (diskEntry) {
+    setLayeredCacheEntry(cacheKey, diskEntry);
+    return getCacheResultFromEnvelope(diskEntry, 'disk', 'stale');
+  }
+
+  const redisEntry = await getRedisCacheEnvelope(cacheKey);
+  if (redisEntry) {
+    setLayeredCacheEntry(cacheKey, redisEntry);
+    if (cacheFilePath) {
+      writeJsonFile(cacheFilePath, redisEntry);
+    }
+    return getCacheResultFromEnvelope(redisEntry, 'redis', 'stale');
+  }
+
+  return null;
+}
+
+async function writeLayeredCache(cacheKey, ttlMs, value) {
+  const envelope = {
+    savedAt: Date.now(),
+    ttlMs,
+    value,
+  };
+
+  setLayeredCacheEntry(cacheKey, envelope);
+
+  const cacheFilePath = getExplorerCacheFilePath(cacheKey);
+  if (cacheFilePath) {
+    writeJsonFile(cacheFilePath, envelope);
+  }
+
+  void setRedisCacheEnvelope(cacheKey, envelope, ttlMs);
+
+  return envelope;
+}
+
+async function invalidateLayeredCache(cacheKey) {
+  deleteLayeredCacheEntry(cacheKey);
+
+  const cacheFilePath = getExplorerCacheFilePath(cacheKey);
+  if (cacheFilePath && fs.existsSync(cacheFilePath)) {
+    try {
+      fs.unlinkSync(cacheFilePath);
+    } catch (error) {
+      console.warn('[ExplorerCache] Failed to remove disk cache', cacheFilePath, error);
+    }
+  }
+
+  await deleteRedisCacheEnvelope(cacheKey);
+}
+
+function normalizeExplorerSettings(partialSettings) {
+  const defaults = getExplorerSettingsDefaults();
+  const integrationEnabled = partialSettings?.explorerIntegrationEnabled ?? defaults.explorerIntegrationEnabled;
+  const mode = partialSettings?.explorerIntegrationMode === 'folders-only' ? 'folders-only' : 'global';
+
+  return {
+    explorerIntegrationEnabled: Boolean(integrationEnabled),
+    explorerIntegrationMode: integrationEnabled ? mode : 'folders-only',
+  };
+}
+
+function loadExplorerSettings() {
+  const defaults = getExplorerSettingsDefaults();
+  const stored = readJsonFile(explorerSettingsPath, defaults);
+  return normalizeExplorerSettings(stored);
+}
+
+function saveExplorerSettings(settings) {
+  const normalized = normalizeExplorerSettings(settings);
+  writeJsonFile(explorerSettingsPath, {
+    version: EXPLORER_INTEGRATION_VERSION,
+    migrationVersion: EXPLORER_INTEGRATION_VERSION,
+    ...normalized,
+  });
+  return normalized;
+}
+
+function writeShellLauncherScript() {
+  if (!shellLauncherScriptPath || !shellLauncherStatePath) return;
+
+  const script = `
+param(
+  [Parameter(Mandatory = $true)][string]$Mode,
+  [string]$TargetPath
+)
+
+$statePath = '${escapePowerShellString(shellLauncherStatePath)}'
+
+function Open-WindowsExplorer {
+  param([string]$FallbackTarget, [string]$FallbackMode)
+
+  if ($FallbackMode -eq 'home' -or [string]::IsNullOrWhiteSpace($FallbackTarget)) {
+    Start-Process -FilePath 'explorer.exe' | Out-Null
+    exit 0
+  }
+
+  Start-Process -FilePath 'explorer.exe' -ArgumentList @($FallbackTarget) | Out-Null
+  exit 0
+}
+
+if (-not (Test-Path -LiteralPath $statePath)) {
+  Open-WindowsExplorer -FallbackTarget $TargetPath -FallbackMode $Mode
+}
+
+try {
+  $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+} catch {
+  Open-WindowsExplorer -FallbackTarget $TargetPath -FallbackMode $Mode
+}
+
+if ($null -eq $state -or [string]::IsNullOrWhiteSpace($state.execPath)) {
+  Open-WindowsExplorer -FallbackTarget $TargetPath -FallbackMode $Mode
+}
+
+$proc = $null
+if ($state.pid) {
+  $proc = Get-Process -Id $state.pid -ErrorAction SilentlyContinue
+}
+
+if ($null -eq $proc) {
+  Open-WindowsExplorer -FallbackTarget $TargetPath -FallbackMode $Mode
+}
+
+$argumentList = @()
+if (-not $state.isPackaged -and -not [string]::IsNullOrWhiteSpace($state.appPath)) {
+  $argumentList += $state.appPath
+}
+
+if ($Mode -eq 'home') {
+  $argumentList += '${SHELL_OPEN_HOME_FLAG}'
+} else {
+  $argumentList += '${SHELL_OPEN_FLAG}'
+  if (-not [string]::IsNullOrWhiteSpace($TargetPath)) {
+    $argumentList += $TargetPath
+  }
+}
+
+try {
+  Start-Process -FilePath $state.execPath -ArgumentList $argumentList -WindowStyle Hidden | Out-Null
+} catch {
+  Open-WindowsExplorer -FallbackTarget $TargetPath -FallbackMode $Mode
+}
+`;
+
+  ensureDirectory(path.dirname(shellLauncherScriptPath));
+  fs.writeFileSync(shellLauncherScriptPath, script.trimStart(), 'utf8');
+}
+
+function writeShellLauncherState() {
+  if (!shellLauncherStatePath) return;
+  writeJsonFile(shellLauncherStatePath, {
+    version: EXPLORER_INTEGRATION_VERSION,
+    pid: process.pid,
+    execPath: process.execPath,
+    appPath: app.getAppPath(),
+    isPackaged: app.isPackaged,
+    updatedAt: Date.now(),
+  });
+}
+
+function clearShellLauncherState() {
+  if (!shellLauncherStatePath || !fs.existsSync(shellLauncherStatePath)) return;
+  try {
+    fs.unlinkSync(shellLauncherStatePath);
+  } catch (error) {
+    console.warn('[ShellIntegration] Failed to clear launcher state', error);
+  }
+}
+
+function parseJsonCommandOutput(rawOutput, fallbackValue = []) {
+  const trimmed = rawOutput?.toString().trim();
+  if (!trimmed) return fallbackValue;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed;
+    return parsed ? [parsed] : fallbackValue;
+  } catch (error) {
+    return fallbackValue;
+  }
+}
+
+function toCacheErrorResult(message, fallbackData = []) {
+  return {
+    success: false,
+    data: fallbackData,
+    status: 'error',
+    error: message,
+  };
+}
+
+async function resolveCachedDataset(cacheKey, ttlMs, liveLoader) {
+  const freshCache = await readLayeredCache(cacheKey, ttlMs);
+  if (freshCache) {
+    return freshCache;
+  }
+
+  try {
+    const liveData = await liveLoader();
+    const envelope = await writeLayeredCache(cacheKey, ttlMs, liveData);
+    return getCacheResultFromEnvelope(envelope, 'live');
+  } catch (error) {
+    const staleCache = await readAnyLayeredCache(cacheKey);
+    if (staleCache) {
+      const status = error?.name === 'AbortError' || String(error?.message || '').toLowerCase().includes('timed out')
+        ? 'timeout'
+        : 'stale';
+      return {
+        ...staleCache,
+        status,
+        error: error instanceof Error ? error.message : 'Unknown cache loader error',
+      };
+    }
+
+    return toCacheErrorResult(error instanceof Error ? error.message : 'Unknown cache loader error');
+  }
+}
+
+function getExtensionFromPath(filePath) {
+  const ext = path.extname(filePath || '').toLowerCase();
+  return ext || '';
+}
+
+function getSystemIconCacheKey(entry) {
+  const filePath = entry?.path || '';
+  const extension = (entry?.extension || getExtensionFromPath(filePath)).toLowerCase();
+  const isDirectory = Boolean(entry?.isDirectory);
+  const extCacheable = extension && !isDirectory && !['.exe', '.lnk', '.url', '.appref-ms', '.ico'].includes(extension);
+
+  if (extCacheable) {
+    return { scope: 'extension', key: extension };
+  }
+
+  return { scope: 'path', key: filePath };
+}
+
+async function loadSystemIcon(entry) {
+  const originalPath = entry?.path;
+  const filePath = originalPath ? resolveTilde(originalPath) : originalPath;
+  if (!filePath || !fs.existsSync(filePath)) {
+    return {
+      success: false,
+      path: originalPath || '',
+      key: entry?.key || originalPath || '',
+      error: 'Path not found',
+    };
+  }
+
+  const cacheMeta = getSystemIconCacheKey(entry);
+  const targetCache = cacheMeta.scope === 'extension' ? extensionIconCache : systemIconCache;
+  const ttlMs = cacheMeta.scope === 'extension' ? ICON_EXTENSION_CACHE_TTL_MS : ICON_PATH_CACHE_TTL_MS;
+  const layeredKey = cacheMeta.scope === 'extension'
+    ? `explorer:icon:ext:${cacheMeta.key}`
+    : `explorer:icon:path:${hashCacheKey(cacheMeta.key)}`;
+
+  if (targetCache.has(cacheMeta.key)) {
+    return {
+      success: true,
+      path: originalPath,
+      key: entry?.key || originalPath,
+      dataUrl: targetCache.get(cacheMeta.key),
+      cacheScope: cacheMeta.scope,
+    };
+  }
+
+  const layeredCache = await readLayeredCache(layeredKey, ttlMs);
+  if (layeredCache?.data) {
+    targetCache.set(cacheMeta.key, layeredCache.data);
+    return {
+      success: true,
+      path: originalPath,
+      key: entry?.key || originalPath,
+      dataUrl: layeredCache.data,
+      cacheScope: cacheMeta.scope,
+    };
+  }
+
+  const image = await app.getFileIcon(filePath, { size: 'large' });
+  const dataUrl = image.toDataURL();
+  targetCache.set(cacheMeta.key, dataUrl);
+  await writeLayeredCache(layeredKey, ttlMs, dataUrl);
+
+  return {
+    success: true,
+    path: originalPath,
+    key: entry?.key || originalPath,
+    dataUrl,
+    cacheScope: cacheMeta.scope,
+  };
+}
+
+async function mapLimit(items, limit, worker) {
+  const results = new Array(items.length);
+  let index = 0;
+
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const currentIndex = index++;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  });
+
+  await Promise.all(runners);
+  return results;
+}
+
+function getShellCommandParts(mode, targetPlaceholder) {
+  const args = [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    `"${shellLauncherScriptPath}"`,
+    '-Mode',
+    mode,
+  ];
+
+  if (targetPlaceholder) {
+    args.push('-TargetPath');
+    args.push(`"${targetPlaceholder}"`);
+  }
+
+  return `powershell.exe ${args.join(' ')}`;
+}
+
+function getKnownShellOverrideKeys() {
+  return [
+    'HKCU\\Software\\Classes\\Drive\\shell\\open\\command',
+    'HKCU\\Software\\Classes\\Directory\\shell\\open\\command',
+    'HKCU\\Software\\Classes\\Folder\\shell\\open\\command',
+    'HKCU\\Software\\Classes\\Folder\\shell\\explore\\command',
+    `HKCU\\Software\\Classes\\CLSID\\${LEGACY_WINDOWS_EXPLORER_CLSID}\\shell\\opennewwindow\\command`,
+  ];
+}
+
+function getShellCommandKeyInfo(key) {
+  const registryPath = `Registry::${key}`;
+  const script = `
+$path = '${escapePowerShellString(registryPath)}'
+if (-not (Test-Path -LiteralPath $path)) {
+  '{}' 
+  exit 0
+}
+$item = Get-ItemProperty -LiteralPath $path -ErrorAction SilentlyContinue
+[PSCustomObject]@{
+  command = $item.'(default)'
+  delegateExecute = $item.DelegateExecute
+  owner = $item.CognitiveStreamOwner
+  version = $item.CognitiveStreamVersion
+} | ConvertTo-Json -Compress
+`;
+
+  try {
+    const payload = runPowerShell(script).trim();
+    return payload ? JSON.parse(payload) : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function isLegacyShellOverride(shellInfo) {
+  const command = String(shellInfo?.command || '');
+  return Boolean(
+    shellInfo?.delegateExecute !== undefined ||
+    command.includes('shell-launcher.ps1') ||
+    command.includes(SHELL_OPEN_HOME_FLAG) ||
+    command.includes(SHELL_OPEN_FLAG)
+  );
+}
+
+function clearManagedShellOverrides() {
+  let legacyDetected = false;
+  const keys = getKnownShellOverrideKeys();
+
+  for (const key of keys) {
+    const shellInfo = getShellCommandKeyInfo(key);
+    const managedByUs = shellInfo?.owner === EXPLORER_SHELL_OWNER;
+    const isLegacy = isLegacyShellOverride(shellInfo);
+
+    if (managedByUs || (includeLegacy && isLegacy)) {
+      removeRegistryKey(key);
+    }
+
+    legacyDetected = legacyDetected || isLegacy;
+  }
+
+  return legacyDetected;
+}
+
+function applyWindowsShellIntegration(settings) {
+  if (process.platform !== 'win32') return settings;
+
+  const normalized = normalizeExplorerSettings(settings);
+  clearManagedShellOverrides();
+
+  if (!normalized.explorerIntegrationEnabled) {
+    refreshWindowsShellAssociations();
+    return normalized;
+  }
+
+  const folderCommand = getShellCommandParts('folder', '%1');
+  setRegistryValue('HKCU\\Software\\Classes\\Drive\\shell\\open\\command', '(default)', folderCommand);
+  setRegistryValue('HKCU\\Software\\Classes\\Drive\\shell\\open\\command', 'CognitiveStreamOwner', EXPLORER_SHELL_OWNER);
+  setRegistryValue('HKCU\\Software\\Classes\\Drive\\shell\\open\\command', 'CognitiveStreamVersion', EXPLORER_INTEGRATION_VERSION, 'DWord');
+  setRegistryValue('HKCU\\Software\\Classes\\Directory\\shell\\open\\command', '(default)', folderCommand);
+  setRegistryValue('HKCU\\Software\\Classes\\Directory\\shell\\open\\command', 'CognitiveStreamOwner', EXPLORER_SHELL_OWNER);
+  setRegistryValue('HKCU\\Software\\Classes\\Directory\\shell\\open\\command', 'CognitiveStreamVersion', EXPLORER_INTEGRATION_VERSION, 'DWord');
+  setRegistryValue('HKCU\\Software\\Classes\\Folder\\shell\\open\\command', '(default)', folderCommand);
+  setRegistryValue('HKCU\\Software\\Classes\\Folder\\shell\\open\\command', 'CognitiveStreamOwner', EXPLORER_SHELL_OWNER);
+  setRegistryValue('HKCU\\Software\\Classes\\Folder\\shell\\open\\command', 'CognitiveStreamVersion', EXPLORER_INTEGRATION_VERSION, 'DWord');
+  setRegistryValue('HKCU\\Software\\Classes\\Folder\\shell\\explore\\command', '(default)', folderCommand);
+  setRegistryValue('HKCU\\Software\\Classes\\Folder\\shell\\explore\\command', 'CognitiveStreamOwner', EXPLORER_SHELL_OWNER);
+  setRegistryValue('HKCU\\Software\\Classes\\Folder\\shell\\explore\\command', 'CognitiveStreamVersion', EXPLORER_INTEGRATION_VERSION, 'DWord');
+
+  if (normalized.explorerIntegrationMode === 'global') {
+    const homeCommand = getShellCommandParts('home');
+    setRegistryValue(`HKCU\\Software\\Classes\\CLSID\\${LEGACY_WINDOWS_EXPLORER_CLSID}\\shell\\opennewwindow\\command`, '(default)', homeCommand);
+    setRegistryValue(`HKCU\\Software\\Classes\\CLSID\\${LEGACY_WINDOWS_EXPLORER_CLSID}\\shell\\opennewwindow\\command`, 'CognitiveStreamOwner', EXPLORER_SHELL_OWNER);
+    setRegistryValue(`HKCU\\Software\\Classes\\CLSID\\${LEGACY_WINDOWS_EXPLORER_CLSID}\\shell\\opennewwindow\\command`, 'CognitiveStreamVersion', EXPLORER_INTEGRATION_VERSION, 'DWord');
+  }
+
+  refreshWindowsShellAssociations();
+  return normalized;
+}
+
+function selfHealWindowsShellIntegration(settings) {
+  if (process.platform !== 'win32') {
+    return {
+      normalized: normalizeExplorerSettings(settings),
+      migratedLegacyState: false,
+    };
+  }
+  cleanShellIntegrationArtifacts();
+  const legacyDetected = clearManagedShellOverrides();
+  const normalized = applyWindowsShellIntegration(settings);
+  return {
+    normalized,
+    migratedLegacyState: legacyDetected,
+  };
+}
+
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
@@ -122,23 +1000,75 @@ function createWindow() {
   }
 
   mainWindow.on('closed', () => {
+    stopDirectoryWatchersForOwner(mainWindow?.webContents.id);
+    rendererExplorerChannelReady = false;
     mainWindow = null;
   });
 }
 
-app.whenReady().then(createWindow);
+function bootstrapApp() {
+  const userDataPath = app.getPath('userData');
+  explorerSettingsPath = path.join(userDataPath, 'explorer-settings.json');
+  shellLauncherScriptPath = path.join(userDataPath, 'shell-launcher.ps1');
+  shellLauncherStatePath = path.join(userDataPath, 'shell-launcher-state.json');
+  explorerCacheRootPath = path.join(userDataPath, 'explorer-cache');
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+  writeShellLauncherScript();
+  writeShellLauncherState();
+  ensureDirectory(explorerCacheRootPath);
 
-app.on('activate', () => {
-  if (mainWindow === null) {
-    createWindow();
+  createWindow();
+
+  try {
+    const storedSettings = readJsonFile(explorerSettingsPath, getExplorerSettingsDefaults());
+    let normalized = normalizeExplorerSettings(storedSettings);
+    const healResult = selfHealWindowsShellIntegration(normalized);
+    normalized = healResult.normalized;
+
+    saveExplorerSettings(normalized);
+  } catch (error) {
+    console.warn('[ShellIntegration] Failed to register Windows shell integration', error);
   }
-});
+}
+
+if (hasSingleInstanceLock) {
+  app.whenReady().then(bootstrapApp);
+
+  app.on('second-instance', (event, argv, workingDirectory, additionalData) => {
+    const shellLaunch = additionalData?.shellLaunch || parseShellLaunchArgs(argv);
+
+    if (shellLaunch?.isShellRequest) {
+      enqueueExplorerOpen(shellLaunch.targetPath, shellLaunch.source || 'folder');
+    }
+
+    focusMainWindow();
+  });
+
+  app.on('window-all-closed', () => {
+    stopDirectoryWatchersForOwner(mainWindow?.webContents.id);
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+
+  app.on('activate', () => {
+    if (mainWindow === null) {
+      createWindow();
+      flushExplorerOpenQueue();
+    }
+  });
+
+  app.on('before-quit', () => {
+    try {
+      for (const watcherKey of Array.from(directoryWatchers.keys())) {
+        stopDirectoryWatcher(watcherKey);
+      }
+      clearShellLauncherState();
+    } catch (error) {
+      console.warn('[ShellIntegration] Failed during quit cleanup', error);
+    }
+  });
+}
 
 // ═══════════════════════════════════════════════════════════════
 // SYSTEM METRICS HELPERS
@@ -187,6 +1117,35 @@ ipcMain.on('widget:mouse-leave', () => {
 ipcMain.handle('widget:set-always-on-top', (event, value) => {
   mainWindow?.setAlwaysOnTop(value);
   return { success: true, alwaysOnTop: value };
+});
+
+ipcMain.on('explorer:renderer-ready', () => {
+  rendererExplorerChannelReady = true;
+  flushExplorerOpenQueue();
+});
+
+ipcMain.handle('explorer:get-settings', async () => {
+  return loadExplorerSettings();
+});
+
+ipcMain.handle('explorer:set-settings', async (event, nextSettings = {}) => {
+  const normalized = saveExplorerSettings({
+    ...loadExplorerSettings(),
+    ...nextSettings,
+  });
+  if (process.platform === 'win32') {
+    selfHealWindowsShellIntegration(normalized);
+  }
+  return normalized;
+});
+
+ipcMain.handle('explorer:invalidate-dir-cache', async (event, dirPath) => {
+  const resolvedPath = resolveTilde(dirPath);
+  await invalidateLayeredCache(`explorer:dir:${hashCacheKey(resolvedPath)}`);
+  return {
+    success: true,
+    path: resolvedPath,
+  };
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -325,21 +1284,35 @@ ipcMain.handle('fs:write', async (event, filePath, content) => {
 
 // List directory
 ipcMain.handle('fs:list', async (event, dirPath, options = {}) => {
+  const resolvedPath = dirPath.startsWith('~')
+    ? path.join(os.homedir(), dirPath.slice(1))
+    : dirPath;
+  const cacheKey = `explorer:dir:${hashCacheKey(resolvedPath)}`;
+
+  const freshCache = await readLayeredCache(cacheKey, DIR_CACHE_TTL_MS);
+  if (freshCache) {
+    return {
+      success: true,
+      path: resolvedPath,
+      items: freshCache.data,
+      status: freshCache.status,
+      source: freshCache.source,
+      lastUpdatedAt: freshCache.lastUpdatedAt,
+    };
+  }
+
   try {
-    const resolvedPath = dirPath.startsWith('~') 
-      ? path.join(os.homedir(), dirPath.slice(1))
-      : dirPath;
-    
     const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
-    
-    const items = entries.map(entry => {
+    const items = entries.map((entry) => {
       const fullPath = path.join(resolvedPath, entry.name);
       let stats = null;
-      
+
       try {
         stats = fs.statSync(fullPath);
-      } catch {}
-      
+      } catch (error) {
+        stats = null;
+      }
+
       return {
         name: entry.name,
         path: fullPath,
@@ -349,25 +1322,46 @@ ipcMain.handle('fs:list', async (event, dirPath, options = {}) => {
         modified: stats?.mtime || null,
       };
     });
-    
-    const filtered = options.showHidden 
-      ? items 
-      : items.filter(i => !i.name.startsWith('.'));
-    
+
+    const filtered = options.showHidden
+      ? items
+      : items.filter((item) => !item.name.startsWith('.'));
+    const sortedItems = filtered.sort((a, b) => {
+      if (a.isDirectory && !b.isDirectory) return -1;
+      if (!a.isDirectory && b.isDirectory) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    const envelope = await writeLayeredCache(cacheKey, DIR_CACHE_TTL_MS, sortedItems);
+
     return {
       success: true,
       path: resolvedPath,
-      items: filtered.sort((a, b) => {
-        if (a.isDirectory && !b.isDirectory) return -1;
-        if (!a.isDirectory && b.isDirectory) return 1;
-        return a.name.localeCompare(b.name);
-      }),
+      items: sortedItems,
+      status: 'ready',
+      source: 'live',
+      lastUpdatedAt: envelope.savedAt,
     };
   } catch (error) {
+    const staleCache = await readAnyLayeredCache(cacheKey);
+    if (staleCache) {
+      return {
+        success: true,
+        path: resolvedPath,
+        items: staleCache.data,
+        status: 'stale',
+        source: staleCache.source,
+        lastUpdatedAt: staleCache.lastUpdatedAt,
+        error: error.message,
+      };
+    }
+
     return {
       success: false,
       error: error.message,
       path: dirPath,
+      items: [],
+      status: 'error',
     };
   }
 });
@@ -511,8 +1505,135 @@ ipcMain.handle('system:icon', async (event, filePath) => {
   }
 });
 
+ipcMain.handle('system:icons', async (event, entries = []) => {
+  const safeEntries = Array.isArray(entries) ? entries.filter(Boolean) : [];
+  const icons = await mapLimit(safeEntries, 6, async (entry) => {
+    try {
+      return await loadSystemIcon(entry);
+    } catch (error) {
+      return {
+        success: false,
+        path: entry?.path || '',
+        key: entry?.key || entry?.path || '',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  });
+
+  return {
+    success: true,
+    icons,
+  };
+});
+
 ipcMain.handle('system:shortcut', async (event, filePath) => {
   return resolveWindowsShortcut(filePath);
+});
+
+ipcMain.handle('system:network-mounts', async () => {
+  if (process.platform !== 'win32') {
+    return { success: true, data: [], status: 'ready', source: 'live' };
+  }
+
+  const script = `
+$drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.DisplayRoot -or $_.Root -like '\\\\*' } | ForEach-Object {
+  [PSCustomObject]@{
+    name = $_.Name
+    root = $_.Root
+    displayRoot = $_.DisplayRoot
+    used = $_.Used
+    free = $_.Free
+  }
+}
+$drives | ConvertTo-Json -Compress
+`;
+
+  return resolveCachedDataset('explorer:virtual:network:mounts', NETWORK_CACHE_TTL_MS, async () => (
+    parseJsonCommandOutput(await runPowerShellAsync(script, { timeout: POWERSHELL_TIMEOUT_MS }), [])
+  ));
+});
+
+ipcMain.handle('fs:watch-dir', async (event, dirPath) => {
+  const ownerId = event.sender.id;
+  const resolvedPath = resolveTilde(dirPath);
+  const watcherKey = getDirectoryWatcherKey(ownerId, resolvedPath);
+
+  stopDirectoryWatcher(watcherKey);
+
+  try {
+    const watcher = fs.watch(resolvedPath, { persistent: false }, (eventType, filename) => {
+      const currentEntry = directoryWatchers.get(watcherKey);
+      if (!currentEntry) return;
+
+      if (currentEntry.timeout) {
+        clearTimeout(currentEntry.timeout);
+      }
+
+      currentEntry.timeout = setTimeout(() => {
+        emitDirectoryWatchEvent(ownerId, {
+          path: resolvedPath,
+          eventType,
+          filename: filename ? filename.toString() : '',
+          timestamp: Date.now(),
+        });
+      }, 120);
+    });
+
+    directoryWatchers.set(watcherKey, {
+      ownerId,
+      path: resolvedPath,
+      watcher,
+      timeout: null,
+    });
+
+    return {
+      success: true,
+      path: resolvedPath,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      path: resolvedPath,
+      error: error.message,
+    };
+  }
+});
+
+ipcMain.handle('fs:unwatch-dir', async (event, dirPath) => {
+  const ownerId = event.sender.id;
+  const resolvedPath = resolveTilde(dirPath);
+  stopDirectoryWatcher(getDirectoryWatcherKey(ownerId, resolvedPath));
+  return {
+    success: true,
+    path: resolvedPath,
+  };
+});
+
+ipcMain.handle('system:listening-services', async () => {
+  if (process.platform !== 'win32') {
+    return { success: true, data: [], status: 'ready', source: 'live' };
+  }
+
+  const script = `
+$connections = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+  Where-Object { $_.LocalAddress -in @('127.0.0.1', '0.0.0.0', '::1', '::') } |
+  Sort-Object LocalPort -Unique |
+  ForEach-Object {
+    $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
+    [PSCustomObject]@{
+      address = $_.LocalAddress
+      port = $_.LocalPort
+      pid = $_.OwningProcess
+      processName = if ($proc) { $proc.ProcessName } else { $null }
+      url = "http://localhost:$($_.LocalPort)"
+    }
+  }
+$connections | ConvertTo-Json -Compress
+`;
+
+  return resolveCachedDataset('explorer:virtual:network:services', NETWORK_CACHE_TTL_MS, async () => (
+    parseJsonCommandOutput(await runPowerShellAsync(script, { timeout: POWERSHELL_TIMEOUT_MS }), [])
+  ));
 });
 
 // Check if path exists
@@ -644,23 +1765,21 @@ ipcMain.handle('fs:search', async (event, dirPath, query, options = {}) => {
 });
 
 ipcMain.handle('fs:drives', async () => {
-  if (systemInfoProvider) {
-    try {
-      const disks = await systemInfoProvider.fsSize();
-      return {
-        success: true,
-        drives: disks.map(d => ({
-          mount: d.mount,
-          total: d.size,
-          used: d.used,
-          usage: d.use,
-          fsType: d.type,
-          label: d.fs,
-        })),
-      };
-    } catch {}
-  }
-  return { success: true, drives: [] };
+  return resolveCachedDataset('explorer:virtual:this-pc:drives', THIS_PC_CACHE_TTL_MS, async () => {
+    if (!systemInfoProvider) {
+      return [];
+    }
+
+    const disks = await systemInfoProvider.fsSize();
+    return disks.map((disk) => ({
+      mount: disk.mount,
+      total: disk.size,
+      used: disk.used,
+      usage: disk.use,
+      fsType: disk.type,
+      label: disk.fs,
+    }));
+  });
 });
 
 // Window controls

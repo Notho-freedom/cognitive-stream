@@ -153,6 +153,29 @@
     user-select: none;
   }
 
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--intent-primary) / 0.15) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--intent-primary) / 0.12);
+    border-radius: 9999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--intent-primary) / 0.22);
+  }
+
   input,
   textarea,
   [contenteditable="true"] {

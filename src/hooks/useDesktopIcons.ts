@@ -38,7 +38,7 @@ const isAllowedIcon = (item: DesktopIcon) => {
   return ALLOWED_EXTENSIONS.has(ext);
 };
 
-export function useDesktopIcons() {
+export function useDesktopIcons(enabled = true) {
   const { isAvailable, systemInfo, listDir } = useSystemBridge();
   const [icons, setIcons] = useState<DesktopIcon[]>([]);
   const [desktopPath, setDesktopPath] = useState<string | null>(null);
@@ -51,7 +51,7 @@ export function useDesktopIcons() {
   }, [systemInfo?.homedir, systemInfo?.platform]);
 
   const loadIcons = useCallback(async () => {
-    if (!isAvailable || candidates.length === 0) return;
+    if (!enabled || !isAvailable || candidates.length === 0) return;
     setIsLoading(true);
     setError(null);
 
@@ -90,11 +90,18 @@ export function useDesktopIcons() {
     setIcons(filtered);
     setDesktopPath(sources.join(' | '));
     setIsLoading(false);
-  }, [isAvailable, candidates, listDir]);
+  }, [enabled, isAvailable, candidates, listDir]);
 
   useEffect(() => {
+    if (!enabled) {
+      setIcons([]);
+      setDesktopPath(null);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
     void loadIcons();
-  }, [loadIcons]);
+  }, [enabled, loadIcons]);
 
   return {
     icons,

@@ -10,8 +10,10 @@ import { useCognitiveEdgeTTS } from '@/hooks/useCognitiveEdgeTTS';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useFloatingCards } from '@/hooks/useFloatingCards';
 import { useSystemMetrics } from '@/hooks/useSystemMetrics';
+import { useSystemBridge } from '@/hooks/useSystemBridge';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useDesktopIcons } from '@/hooks/useDesktopIcons';
+import { usePersistentState } from '@/hooks/usePersistentState';
 import { AutonomyConfirmDialog } from '@/components/cognitive/AutonomyConfirmDialog';
 import { AutonomyQuestionDialog } from '@/components/cognitive/AutonomyQuestionDialog';
 import { BridgeIndicator } from './BridgeIndicator';
@@ -51,6 +53,16 @@ function DesktopWidgetShellInner() {
   const [surfaceOpacity, setSurfaceOpacity] = useState(0.75);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [soundsEnabled, setSoundsEnabled] = useState(isSoundEnabled());
+  const [showDesktopApps, setShowDesktopApps] = usePersistentState('desktop:show-apps-widget', false);
+  const [explorerIntegrationEnabled, setExplorerIntegrationEnabled] = useState(true);
+  const [explorerIntegrationMode, setExplorerIntegrationMode] = useState<'global' | 'folders-only'>('global');
+  const {
+    isAvailable: isElectronBridgeAvailable,
+    notifyExplorerReady,
+    onExplorerOpenRequest,
+    getExplorerSettings,
+    setExplorerSettings,
+  } = useSystemBridge();
 
   const metricsEnabled = false;
   const metricsInterval = panelCollapsed ? 8000 : panelTab === 'system' ? 2000 : 5000;
@@ -58,7 +70,7 @@ function DesktopWidgetShellInner() {
     intervalMs: metricsInterval,
     enabled: metricsEnabled,
   });
-  const desktopIcons = useDesktopIcons();
+  const desktopIcons = useDesktopIcons(showDesktopApps);
 
   const {
     messages,
@@ -252,6 +264,33 @@ function DesktopWidgetShellInner() {
     }
   };
 
+  useEffect(() => {
+    if (!isElectronBridgeAvailable) return;
+
+    getExplorerSettings().then((settings) => {
+      setExplorerIntegrationEnabled(settings.explorerIntegrationEnabled);
+      setExplorerIntegrationMode(settings.explorerIntegrationMode);
+    });
+
+    const unsubscribe = onExplorerOpenRequest(({ path }) => {
+      setExplorerPath(path);
+      setExplorerOpen(true);
+    });
+
+    notifyExplorerReady();
+
+    return unsubscribe;
+  }, [getExplorerSettings, isElectronBridgeAvailable, notifyExplorerReady, onExplorerOpenRequest]);
+
+  const syncExplorerSettings = useCallback(async (updates: Partial<{ explorerIntegrationEnabled: boolean; explorerIntegrationMode: 'global' | 'folders-only' }>) => {
+    const next = await setExplorerSettings({
+      explorerIntegrationEnabled: updates.explorerIntegrationEnabled ?? explorerIntegrationEnabled,
+      explorerIntegrationMode: updates.explorerIntegrationMode ?? explorerIntegrationMode,
+    });
+    setExplorerIntegrationEnabled(next.explorerIntegrationEnabled);
+    setExplorerIntegrationMode(next.explorerIntegrationMode);
+  }, [explorerIntegrationEnabled, explorerIntegrationMode, setExplorerSettings]);
+
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
       <>
@@ -303,14 +342,16 @@ function DesktopWidgetShellInner() {
       </div>
 
       {/* Desktop icons zone — gauche */}
-      <DesktopIconZone
-        icons={desktopIcons.icons}
-        isLoading={desktopIcons.isLoading}
-        error={desktopIcons.error}
-        surfaceOpacity={surfaceOpacity}
-        onMouseStateChange={handleMouseState}
-        onOpenExplorer={(path) => { setExplorerPath(path); setExplorerOpen(true); }}
-      />
+      {showDesktopApps && (
+        <DesktopIconZone
+          icons={desktopIcons.icons}
+          isLoading={desktopIcons.isLoading}
+          error={desktopIcons.error}
+          surfaceOpacity={surfaceOpacity}
+          onMouseStateChange={handleMouseState}
+          onOpenExplorer={(path) => { setExplorerPath(path); setExplorerOpen(true); }}
+        />
+      )}
 
       {/* File Explorer */}
       <AnimatePresence>
@@ -344,6 +385,24 @@ function DesktopWidgetShellInner() {
         onSoundsToggle={setSoundsEnabled}
         reduceMotion={reduceMotion}
         onReduceMotionToggle={setReduceMotion}
+        showDesktopApps={showDesktopApps}
+        onShowDesktopAppsToggle={setShowDesktopApps}
+        explorerIntegrationEnabled={explorerIntegrationEnabled}
+        onExplorerIntegrationEnabledChange={(value) => {
+          setExplorerIntegrationEnabled(value);
+          void syncExplorerSettings({
+            explorerIntegrationEnabled: value,
+            explorerIntegrationMode: value ? 'global' : 'folders-only',
+          });
+        }}
+        explorerIntegrationMode={explorerIntegrationMode}
+        onExplorerIntegrationModeChange={(value) => {
+          setExplorerIntegrationMode(value);
+          void syncExplorerSettings({
+            explorerIntegrationEnabled: true,
+            explorerIntegrationMode: value,
+          });
+        }}
         onActivatePerformanceMode={() => {
           setReduceMotion(true);
           setSoundsEnabled(false);

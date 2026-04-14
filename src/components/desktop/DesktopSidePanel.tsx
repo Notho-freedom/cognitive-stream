@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import type { SystemMetrics } from '@/hooks/useSystemBridge';
 
 type PanelTab = 'system' | 'settings';
+type ExplorerMode = 'global' | 'folders-only';
 
 interface DesktopSidePanelProps {
   metrics: SystemMetrics | null;
@@ -29,6 +30,12 @@ interface DesktopSidePanelProps {
   reduceMotion: boolean;
   onReduceMotionToggle: (value: boolean) => void;
   onActivatePerformanceMode: () => void;
+  showDesktopApps: boolean;
+  onShowDesktopAppsToggle: (value: boolean) => void;
+  explorerIntegrationEnabled: boolean;
+  onExplorerIntegrationEnabledChange: (value: boolean) => void;
+  explorerIntegrationMode: ExplorerMode;
+  onExplorerIntegrationModeChange: (value: ExplorerMode) => void;
 }
 
 const PANEL_WIDTH = 320;
@@ -53,6 +60,12 @@ export function DesktopSidePanel({
   reduceMotion,
   onReduceMotionToggle,
   onActivatePerformanceMode,
+  showDesktopApps,
+  onShowDesktopAppsToggle,
+  explorerIntegrationEnabled,
+  onExplorerIntegrationEnabledChange,
+  explorerIntegrationMode,
+  onExplorerIntegrationModeChange,
 }: DesktopSidePanelProps) {
   const memoryUsage = metrics?.memory?.usage ?? null;
   const cpuUsage = metrics?.cpu?.usage ?? null;
@@ -210,6 +223,43 @@ export function DesktopSidePanel({
                           checked={reduceMotion}
                           onChange={onReduceMotionToggle}
                         />
+                        <SettingRow
+                          label="Apps du bureau"
+                          description="Afficher le widget des applications"
+                          checked={showDesktopApps}
+                          onChange={onShowDesktopAppsToggle}
+                        />
+                        <SettingRow
+                          label="Explorateur Windows"
+                          description="Overwrite strict de l’explorateur"
+                          checked={explorerIntegrationEnabled}
+                          onChange={onExplorerIntegrationEnabledChange}
+                        />
+
+                        <div className="space-y-2 border border-intent-primary/10 p-2">
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-text-ghost">Portée de l’intégration</div>
+                          <div className="flex items-center gap-2">
+                            <ModeButton
+                              active={explorerIntegrationMode === 'global'}
+                              disabled={!explorerIntegrationEnabled}
+                              onClick={() => onExplorerIntegrationModeChange('global')}
+                            >
+                              Globale
+                            </ModeButton>
+                            <ModeButton
+                              active={explorerIntegrationMode === 'folders-only'}
+                              disabled={!explorerIntegrationEnabled}
+                              onClick={() => onExplorerIntegrationModeChange('folders-only')}
+                            >
+                              Dossiers
+                            </ModeButton>
+                          </div>
+                          <div className="text-[10px] text-text-ghost/60">
+                            {explorerIntegrationMode === 'global'
+                              ? 'Double-clic dossiers et Win+E passent par notre explorateur.'
+                              : 'Seuls les dossiers et lecteurs sont redirigés.'}
+                          </div>
+                        </div>
 
                         <div className="space-y-2">
                           <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-text-ghost">
@@ -327,6 +377,35 @@ function InfoLine({ label, value }: { label: string; value: string }) {
       <span>{label}</span>
       <span className="text-text-primary">{value}</span>
     </div>
+  );
+}
+
+function ModeButton({
+  active,
+  disabled,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  children: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'px-2 py-1 text-[10px] uppercase tracking-[0.18em] border transition-colors',
+        disabled
+          ? 'text-text-ghost/25 border-intent-primary/10 cursor-not-allowed'
+          : active
+            ? 'text-intent-primary border-intent-primary/60 bg-intent-primary/10'
+            : 'text-text-ghost/60 border-intent-primary/15 hover:border-intent-primary/40 hover:text-text-primary',
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

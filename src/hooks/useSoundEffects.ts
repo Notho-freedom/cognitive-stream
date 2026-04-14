@@ -1,11 +1,21 @@
-import { useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 
 /**
  * useSoundEffects — Sons courts et discrets pour le HUD cognitif
  * Utilise des fichiers audio (et fallback en Web Audio si indisponible)
  */
 
-type SoundEffect = 'cardAppear' | 'cardDismiss' | 'send' | 'success' | 'error' | 'action' | 'thinking';
+type SoundEffect =
+  | 'cardAppear'
+  | 'cardDismiss'
+  | 'send'
+  | 'success'
+  | 'error'
+  | 'action'
+  | 'thinking'
+  | 'explorerOpen'
+  | 'explorerClose'
+  | 'moveSuccess';
 
 type SoundSource = {
   url: string;
@@ -49,10 +59,26 @@ const SOUND_SOURCES: Record<SoundEffect, SoundSource> = {
     volume: 0.35,
     maxDurationMs: 1400,
   },
+  explorerOpen: {
+    url: new URL('../soundEffect/ES_Hitech GUI, Scifi, Interact, Digital, Glitch 03 - Epidemic Sound - 0478-1976.wav', import.meta.url).href,
+    volume: 0.35,
+    maxDurationMs: 500,
+  },
+  explorerClose: {
+    url: new URL('../soundEffect/ES_Sci Fi Games, UI Menu, Very Short, Close 03 - Epidemic Sound - 0000-0233.wav', import.meta.url).href,
+    volume: 0.45,
+    maxDurationMs: 400,
+  },
+  moveSuccess: {
+    url: new URL('../soundEffect/ES_Hitech GUI, Scifi, Interact, Digital, Glitch 03 - Epidemic Sound - 1948-2967.wav', import.meta.url).href,
+    volume: 0.4,
+    maxDurationMs: 500,
+  },
 };
 
 const audioCtxRef = { current: null as AudioContext | null };
 const audioCacheRef = { current: {} as Record<SoundEffect, HTMLAudioElement> };
+const soundEnabledRef = { current: true };
 
 function getAudioCtx(): AudioContext {
   if (!audioCtxRef.current) {
@@ -165,13 +191,22 @@ const FALLBACK_EFFECTS: Record<SoundEffect, () => void> = {
   thinking: () => {
     playTone(440, 0.25, 'sine', 0.03);
   },
+  explorerOpen: () => {
+    playTone(740, 0.08, 'triangle', 0.04);
+    setTimeout(() => playTone(1040, 0.1, 'triangle', 0.035), 35);
+  },
+  explorerClose: () => {
+    playTone(520, 0.08, 'triangle', 0.04);
+    setTimeout(() => playTone(390, 0.09, 'triangle', 0.03), 35);
+  },
+  moveSuccess: () => {
+    playChord([659, 784], 0.18, 0.035);
+  },
 };
 
 export function useSoundEffects() {
-  const enabledRef = useRef(true);
-
   const play = useCallback((effect: SoundEffect) => {
-    if (!enabledRef.current) return;
+    if (!soundEnabledRef.current) return;
     const played = playClip(effect);
     if (!played) {
       FALLBACK_EFFECTS[effect]?.();
@@ -179,14 +214,14 @@ export function useSoundEffects() {
   }, []);
 
   const toggle = useCallback(() => {
-    enabledRef.current = !enabledRef.current;
-    return enabledRef.current;
+    soundEnabledRef.current = !soundEnabledRef.current;
+    return soundEnabledRef.current;
   }, []);
 
   const setEnabled = useCallback((value: boolean) => {
-    enabledRef.current = value;
-    return enabledRef.current;
+    soundEnabledRef.current = value;
+    return soundEnabledRef.current;
   }, []);
 
-  return { play, toggle, setEnabled, isEnabled: () => enabledRef.current };
+  return { play, toggle, setEnabled, isEnabled: () => soundEnabledRef.current };
 }

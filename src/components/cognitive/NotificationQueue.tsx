@@ -41,10 +41,10 @@ const PRIORITY_CONFIG: Record<NotificationPriority, {
   maxVisible: number;
   zBoost: number;
 }> = {
-  low: { variant: 'minimal', defaultTTL: 3000, maxVisible: 4, zBoost: 0 },
-  medium: { variant: 'secondary', defaultTTL: 4000, maxVisible: 4, zBoost: 10 },
-  high: { variant: 'primary', defaultTTL: 6000, maxVisible: 5, zBoost: 20 },
-  critical: { variant: 'primary', defaultTTL: 12000, maxVisible: 5, zBoost: 30 },
+  low: { variant: 'minimal', defaultTTL: 2400, maxVisible: 3, zBoost: 0 },
+  medium: { variant: 'secondary', defaultTTL: 3600, maxVisible: 4, zBoost: 10 },
+  high: { variant: 'primary', defaultTTL: 5200, maxVisible: 4, zBoost: 20 },
+  critical: { variant: 'primary', defaultTTL: 8500, maxVisible: 4, zBoost: 30 },
 };
 
 // Provider
@@ -102,11 +102,10 @@ function NotificationItem({
 }) {
   const config = PRIORITY_CONFIG[notification.priority];
   const [progress, setProgress] = useState(100);
-  const [isHovered, setIsHovered] = useState(false);
 
-  // Auto-dismiss with TTL
+  // Auto-dismiss without hover-pausing so transient system messages always clear themselves.
   useEffect(() => {
-    if (!notification.ttl || notification.ttl <= 0 || isHovered) return;
+    if (!notification.ttl || notification.ttl <= 0) return;
     
     const startTime = Date.now();
     const interval = setInterval(() => {
@@ -121,7 +120,7 @@ function NotificationItem({
     }, 50);
 
     return () => clearInterval(interval);
-  }, [notification.ttl, isHovered, onDismiss]);
+  }, [notification.ttl, onDismiss]);
 
   // Calculate cascade effect
   const yOffset = index * 60; // Vertical offset for each card
@@ -148,8 +147,6 @@ function NotificationItem({
       }}
       style={{ zIndex: 100 - index + config.zBoost }}
       className="absolute right-0 top-0 w-80"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
     >
       <FuturisticFrame variant={config.variant} animated={notification.priority === 'critical'}>
         <div className="p-4 min-h-[80px]">

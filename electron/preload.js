@@ -32,6 +32,27 @@ contextBridge.exposeInMainWorld('cognitiveBridge', {
   move: (src, dest) => ipcRenderer.invoke('fs:move', src, dest),
   search: (dir, query, options) => ipcRenderer.invoke('fs:search', dir, query, options),
   getDrives: () => ipcRenderer.invoke('fs:drives'),
+  invalidateExplorerDirCache: (dirPath) => ipcRenderer.invoke('explorer:invalidate-dir-cache', dirPath),
+  watchDir: (dirPath, callback) => {
+    let watchedPath = dirPath;
+    const watchRequest = ipcRenderer.invoke('fs:watch-dir', dirPath).then((result) => {
+      if (result?.success && result.path) {
+        watchedPath = result.path;
+      }
+      return result;
+    });
+    const handler = (event, payload) => {
+      if (payload?.path === watchedPath) {
+        callback(payload);
+      }
+    };
+    ipcRenderer.on('fs:watch-event', handler);
+    return async () => {
+      ipcRenderer.removeListener('fs:watch-event', handler);
+      const result = await watchRequest.catch(() => ({ path: watchedPath }));
+      await ipcRenderer.invoke('fs:unwatch-dir', result?.path || watchedPath);
+    };
+  },
 
   // ─────────────────────────────────────────────────────────────
   // System Information
@@ -39,7 +60,18 @@ contextBridge.exposeInMainWorld('cognitiveBridge', {
   getSystemInfo: () => ipcRenderer.invoke('system:info'),
   getSystemMetrics: () => ipcRenderer.invoke('system:metrics'),
   getFileIcon: (path) => ipcRenderer.invoke('system:icon', path),
+  getFileIcons: (entries) => ipcRenderer.invoke('system:icons', entries),
   resolveShortcut: (path) => ipcRenderer.invoke('system:shortcut', path),
+  getExplorerSettings: () => ipcRenderer.invoke('explorer:get-settings'),
+  setExplorerSettings: (settings) => ipcRenderer.invoke('explorer:set-settings', settings),
+  getNetworkMounts: () => ipcRenderer.invoke('system:network-mounts'),
+  getListeningServices: () => ipcRenderer.invoke('system:listening-services'),
+  notifyExplorerReady: () => ipcRenderer.send('explorer:renderer-ready'),
+  onExplorerOpenRequest: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on('explorer:open-request', handler);
+    return () => ipcRenderer.removeListener('explorer:open-request', handler);
+  },
 
   // ─────────────────────────────────────────────────────────────
   // Window Controls

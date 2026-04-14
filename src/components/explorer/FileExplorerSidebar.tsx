@@ -1,22 +1,34 @@
 import { cn } from '@/lib/utils';
-import { motion } from 'framer-motion';
+import { usePersistentState } from '@/hooks/usePersistentState';
 import {
-  Folder, HardDrive, Network, Monitor, Star,
-  Download, FileText, Image, Music, Video, Home,
+  ChevronDown,
+  ChevronRight,
+  HardDrive,
+  Network,
+  Monitor,
+  Star,
+  Download,
+  FileText,
+  Image,
+  Music,
+  Video,
+  Home,
 } from 'lucide-react';
-import type { DriveInfo } from '@/types/explorer.types';
+import type { DriveInfo, NetworkMountInfo } from '@/types/explorer.types';
 import { QUICK_ACCESS_PATHS, formatFileSize } from '@/types/explorer.types';
 
 interface FileExplorerSidebarProps {
   currentPath: string;
   drives: DriveInfo[];
+  networkMounts: NetworkMountInfo[];
   hostname: string;
   platform: string;
   onNavigate: (path: string) => void;
 }
 
 const quickAccessItems = [
-  { key: 'home', label: 'Accueil', path: QUICK_ACCESS_PATHS.home, icon: Home },
+  { key: 'home', label: 'Ce PC', path: QUICK_ACCESS_PATHS.thisPc, icon: Home },
+  { key: 'network', label: 'Réseau', path: QUICK_ACCESS_PATHS.network, icon: Network },
   { key: 'desktop', label: 'Bureau', path: QUICK_ACCESS_PATHS.desktop, icon: Monitor },
   { key: 'documents', label: 'Documents', path: QUICK_ACCESS_PATHS.documents, icon: FileText },
   { key: 'downloads', label: 'Téléchargements', path: QUICK_ACCESS_PATHS.downloads, icon: Download },
@@ -26,26 +38,49 @@ const quickAccessItems = [
 ];
 
 export function FileExplorerSidebar({
-  currentPath, drives, hostname, platform, onNavigate,
+  currentPath,
+  drives,
+  networkMounts,
+  hostname,
+  platform,
+  onNavigate,
 }: FileExplorerSidebarProps) {
+  const [sections, setSections] = usePersistentState('explorer:sidebar-sections', {
+    quick: true,
+    drives: true,
+    network: true,
+  });
+
+  const toggleSection = (key: keyof typeof sections) => {
+    setSections((previous) => ({ ...previous, [key]: !previous[key] }));
+  };
+
   return (
-    <div className="w-[180px] min-w-[180px] border-r border-intent-primary/10 flex flex-col overflow-y-auto">
-      {/* Quick access */}
-      <SidebarSection title="Accès rapides" icon={<Star className="w-3 h-3" />}>
-        {quickAccessItems.map(item => (
+    <div className="w-[200px] min-w-[200px] border-r border-intent-primary/10 flex flex-col overflow-y-auto">
+      <SidebarSection
+        title="Accès rapides"
+        icon={<Star className="w-3 h-3" />}
+        open={sections.quick}
+        onToggle={() => toggleSection('quick')}
+      >
+        {quickAccessItems.map((item) => (
           <SidebarItem
             key={item.key}
             label={item.label}
             icon={<item.icon className="w-3.5 h-3.5" />}
-            active={currentPath.endsWith(item.key.charAt(0).toUpperCase() + item.key.slice(1)) || currentPath === item.path}
+            active={currentPath === item.path}
             onClick={() => onNavigate(item.path)}
           />
         ))}
       </SidebarSection>
 
-      {/* Drives */}
-      <SidebarSection title="Disques" icon={<HardDrive className="w-3 h-3" />}>
-        {drives.length > 0 ? drives.map(drive => (
+      <SidebarSection
+        title="Disques"
+        icon={<HardDrive className="w-3 h-3" />}
+        open={sections.drives}
+        onToggle={() => toggleSection('drives')}
+      >
+        {drives.length > 0 ? drives.map((drive) => (
           <div key={drive.mount} className="px-2 py-1">
             <SidebarItem
               label={drive.label || drive.mount}
@@ -53,20 +88,17 @@ export function FileExplorerSidebar({
               active={currentPath.startsWith(drive.mount)}
               onClick={() => onNavigate(drive.mount)}
             />
-            {/* Usage bar */}
             <div className="ml-6 mt-0.5">
-              <div className="h-1 bg-surface-deep/80 rounded-full overflow-hidden">
-                <motion.div
+              <div className="h-[3px] rounded-full overflow-hidden bg-surface-deep/80">
+                <div
                   className={cn(
                     'h-full',
                     drive.usage > 90 ? 'bg-intent-warning' : drive.usage > 70 ? 'bg-intent-focus' : 'bg-intent-primary',
                   )}
-                  initial={{ width: 0 }}
-                  animate={{ width: `${drive.usage}%` }}
-                  transition={{ duration: 0.5 }}
+                  style={{ width: `${drive.usage}%` }}
                 />
               </div>
-              <span className="text-[8px] text-text-ghost/50 font-mono">
+              <span className="text-[8px] text-text-ghost/45 font-mono">
                 {formatFileSize(drive.used)} / {formatFileSize(drive.total)}
               </span>
             </div>
@@ -76,38 +108,75 @@ export function FileExplorerSidebar({
         )}
       </SidebarSection>
 
-      {/* Network */}
-      <SidebarSection title="Réseau" icon={<Network className="w-3 h-3" />}>
+      <SidebarSection
+        title="Réseau"
+        icon={<Network className="w-3 h-3" />}
+        open={sections.network}
+        onToggle={() => toggleSection('network')}
+      >
         <SidebarItem
-          label={hostname}
-          icon={<Monitor className="w-3.5 h-3.5" />}
-          onClick={() => {}}
+          label="Vue Réseau"
+          icon={<Network className="w-3.5 h-3.5" />}
+          active={currentPath === QUICK_ACCESS_PATHS.network}
+          onClick={() => onNavigate(QUICK_ACCESS_PATHS.network)}
         />
+        {networkMounts.map((mount, index) => {
+          const target = mount.displayRoot || mount.root || mount.name || `network:${index}`;
+          return (
+            <SidebarItem
+              key={target}
+              label={mount.name || target}
+              icon={<Monitor className="w-3.5 h-3.5" />}
+              active={currentPath === target}
+              onClick={() => onNavigate(target)}
+            />
+          );
+        })}
         <div className="px-3 py-1">
-          <span className="text-[8px] text-text-ghost/40 font-mono">{platform}</span>
+          <div className="text-[9px] text-text-ghost/60">{hostname}</div>
+          <div className="text-[8px] text-text-ghost/35 font-mono">{platform}</div>
         </div>
       </SidebarSection>
     </div>
   );
 }
 
-function SidebarSection({ title, icon, children }: {
+function SidebarSection({
+  title,
+  icon,
+  open,
+  onToggle,
+  children,
+}: {
   title: string;
   icon: React.ReactNode;
+  open: boolean;
+  onToggle: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <div className="py-2">
-      <div className="flex items-center gap-1.5 px-3 mb-1">
-        <span className="text-text-ghost/50">{icon}</span>
-        <span className="text-[9px] uppercase tracking-[0.2em] text-text-ghost/60">{title}</span>
-      </div>
-      <div className="space-y-px">{children}</div>
+    <div className="py-1.5">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center justify-between px-3 py-1"
+      >
+        <div className="flex items-center gap-1.5">
+          <span className="text-text-ghost/50">{icon}</span>
+          <span className="text-[9px] uppercase tracking-[0.2em] text-text-ghost/60">{title}</span>
+        </div>
+        {open ? <ChevronDown className="w-3 h-3 text-text-ghost/45" /> : <ChevronRight className="w-3 h-3 text-text-ghost/45" />}
+      </button>
+      {open && <div className="space-y-px">{children}</div>}
     </div>
   );
 }
 
-function SidebarItem({ label, icon, active, onClick }: {
+function SidebarItem({
+  label,
+  icon,
+  active,
+  onClick,
+}: {
   label: string;
   icon: React.ReactNode;
   active?: boolean;

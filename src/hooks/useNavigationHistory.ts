@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { isVirtualExplorerPath } from '@/types/explorer.types';
 
 interface NavHistory {
   back: string[];
@@ -48,6 +49,9 @@ export function useNavigationHistory(initialPath: string) {
 
   const goUp = useCallback(() => {
     setHistory(prev => {
+      if (isVirtualExplorerPath(prev.current)) return prev;
+      if (/^[A-Za-z]:\\?$/.test(prev.current)) return prev;
+
       const segments = prev.current.replace(/\\/g, '/').split('/').filter(Boolean);
       if (segments.length <= 1) return prev;
       segments.pop();

@@ -64,10 +64,9 @@ export const FloatingResponseCard = memo(function FloatingResponseCard({
     }
   }, [card.text, card.type]);
 
-  // Auto-dismiss timer (paused on hover)
+  // Auto-dismiss timer kept independent from hover so transient system cards always clear.
   useEffect(() => {
     if (!card.autoDismissMs || card.autoDismissMs <= 0) return;
-    if (isHovered) return;
     if (!isComplete && card.type === 'response' && card.text) return;
 
     const timer = setTimeout(() => {
@@ -75,7 +74,7 @@ export const FloatingResponseCard = memo(function FloatingResponseCard({
     }, card.autoDismissMs);
 
     return () => clearTimeout(timer);
-  }, [card.id, card.autoDismissMs, card.timestamp, isHovered, isComplete, card.type, card.text, onDismiss]);
+  }, [card.id, card.autoDismissMs, card.timestamp, isComplete, card.type, card.text, onDismiss]);
 
   const frameVariant = card.type === 'error' ? 'secondary' : 'primary';
   const config = TYPE_CONFIG[card.type];
@@ -198,7 +197,7 @@ export const FloatingResponseCard = memo(function FloatingResponseCard({
             <CardFooter />
 
             {/* Auto-dismiss progress bar */}
-            {card.autoDismissMs && card.autoDismissMs > 0 && !isHovered && (
+            {card.autoDismissMs && card.autoDismissMs > 0 && (
               <motion.div
                 className="absolute bottom-0 left-0 h-px bg-intent-primary/40"
                 initial={{ width: '100%' }}

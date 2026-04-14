@@ -1,9 +1,8 @@
 import { useCallback, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Minus, Maximize2 } from 'lucide-react';
-import { FuturisticFrame } from '@/components/cognitive/FuturisticFrame';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useFileExplorer } from '@/hooks/useFileExplorer';
+import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { FileExplorerToolbar } from './FileExplorerToolbar';
 import { FileExplorerSidebar } from './FileExplorerSidebar';
 import { FileExplorerBreadcrumb } from './FileExplorerBreadcrumb';
@@ -11,7 +10,10 @@ import { FileExplorerContent } from './FileExplorerContent';
 import { FileExplorerPreview } from './FileExplorerPreview';
 import { FileExplorerContextMenu } from './FileExplorerContextMenu';
 import { FileExplorerStatusBar } from './FileExplorerStatusBar';
+import { FileExplorerHomeContent } from './FileExplorerHomeContent';
 import type { FileEntity } from '@/types/explorer.types';
+import { QUICK_ACCESS_PATHS } from '@/types/explorer.types';
+import { WindowFrame } from '@/components/desktop/WindowFrame';
 
 interface FileExplorerProps {
   initialPath?: string;
@@ -22,11 +24,16 @@ interface FileExplorerProps {
 
 export function FileExplorer({ initialPath, onClose, onMouseStateChange, surfaceOpacity = 0.85 }: FileExplorerProps) {
   const explorer = useFileExplorer(initialPath);
+  const { play: playSound } = useSoundEffects();
   const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; file: FileEntity | null }>({
     visible: false, x: 0, y: 0, file: null,
   });
   const [isMaximized, setIsMaximized] = useState(false);
-  const [newFolderPrompt, setNewFolderPrompt] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
+
+  useEffect(() => {
+    playSound('explorerOpen');
+  }, [playSound]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -43,13 +50,18 @@ export function FileExplorer({ initialPath, onClose, onMouseStateChange, surface
       if (e.ctrlKey || e.metaKey) {
         if (e.key === 'c') { e.preventDefault(); explorer.copy(); }
         if (e.key === 'x') { e.preventDefault(); explorer.cut(); }
-        if (e.key === 'v') { e.preventDefault(); explorer.paste(); }
+        if (e.key === 'v') {
+          e.preventDefault();
+          void explorer.paste().then((success) => {
+            if (success) playSound('moveSuccess');
+          });
+        }
         if (e.key === 'a') { e.preventDefault(); explorer.selectAll(); }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [explorer]);
+  }, [explorer, playSound]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, file: FileEntity) => {
     e.preventDefault();
@@ -73,8 +85,10 @@ export function FileExplorer({ initialPath, onClose, onMouseStateChange, surface
   const handleCopyPath = useCallback(() => {
     if (contextMenu.file) navigator.clipboard?.writeText(contextMenu.file.path);
   }, [contextMenu.file]);
-
-  const currentDrive = explorer.drives.find(d => explorer.currentPath.startsWith(d.mount));
+  const handleClose = useCallback(() => {
+    playSound('explorerClose');
+    onClose();
+  }, [onClose, playSound]);
 
   return (
     <motion.div
@@ -83,32 +97,34 @@ export function FileExplorer({ initialPath, onClose, onMouseStateChange, surface
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       className="pointer-events-auto fixed z-50"
-      style={isMaximized
-        ? { inset: 8 }
-        : { left: '10%', top: '5%', width: '80vw', height: '85vh' }
+      style={isMinimized
+        ? { left: '10%', bottom: 16, width: 360, height: 'auto' }
+        : isMaximized
+          ? { inset: 8 }
+          : { left: '10%', top: '5%', width: '80vw', height: '85vh' }
       }
       onMouseEnter={() => onMouseStateChange?.(true)}
       onMouseLeave={() => onMouseStateChange?.(false)}
     >
-      <FuturisticFrame variant="primary" animated={false} surfaceOpacity={surfaceOpacity} gridOpacity={0.015}>
-        <div className="flex flex-col h-full" style={isMaximized ? { height: 'calc(100vh - 16px)' } : { height: '85vh' }}>
-          {/* Title bar */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-intent-primary/15">
-            <div className="flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-intent-primary" />
-              <span className="text-[10px] uppercase tracking-[0.25em] text-text-ghost/70">EXPLORATEUR</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <button onClick={() => setIsMaximized(p => !p)} className="p-1 text-text-ghost/40 hover:text-text-primary transition-colors">
-                <Maximize2 className="w-3 h-3" />
-              </button>
-              <button onClick={onClose} className="p-1 text-text-ghost/40 hover:text-intent-warning transition-colors">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
+      <WindowFrame
+        title="EXPLORATEUR"
+        minimized={isMinimized}
+        maximized={isMaximized}
+        onMinimize={() => setIsMinimized((previous) => !previous)}
+        onMaximize={() => setIsMaximized((previous) => !previous)}
+        onClose={handleClose}
+        surfaceOpacity={surfaceOpacity}
+      >
+        <div
+          className="relative h-full overflow-hidden"
+          style={isMaximized ? { height: 'calc(100vh - 16px)' } : { height: '85vh' }}
+        >
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute top-1/3 left-1/3 h-[600px] w-[600px] rounded-full bg-intent-primary/3 blur-[120px]" />
+            <div className="absolute bottom-1/3 right-1/3 h-[400px] w-[400px] rounded-full bg-intent-secondary/3 blur-[100px]" />
           </div>
 
-          {/* Toolbar */}
+          <div className="relative z-10 flex h-full flex-col">
           <FileExplorerToolbar
             viewMode={explorer.viewMode}
             showHidden={explorer.showHidden}
@@ -124,30 +140,49 @@ export function FileExplorer({ initialPath, onClose, onMouseStateChange, surface
             onGoBack={explorer.goBack}
             onGoForward={explorer.goForward}
             onGoUp={explorer.goUp}
-            onGoHome={() => explorer.navigateTo('~')}
+            onGoHome={() => explorer.navigateTo(QUICK_ACCESS_PATHS.home)}
             onRefresh={explorer.refresh}
             onNewFolder={handleNewFolder}
             onNewFile={handleNewFile}
             onNavigate={explorer.navigateTo}
+            isVirtualView={explorer.isVirtualView}
           />
 
-          {/* Breadcrumb */}
           <FileExplorerBreadcrumb path={explorer.currentPath} onNavigate={explorer.navigateTo} />
 
-          {/* Main area */}
           <div className="flex flex-1 min-h-0">
-            {/* Sidebar */}
             <FileExplorerSidebar
               currentPath={explorer.currentPath}
               drives={explorer.drives}
+              networkMounts={explorer.networkMounts}
               hostname={explorer.hostname}
               platform={explorer.platform}
               onNavigate={explorer.navigateTo}
             />
 
-            {/* Content */}
-            <ScrollArea className="flex-1">
-              {explorer.isLoading ? (
+            <ScrollArea className="relative flex-1">
+              {explorer.isLoading && explorer.files.length > 0 && (
+                <div className="pointer-events-none absolute right-3 top-3 z-20 rounded-full border border-intent-primary/20 bg-surface-deep/80 px-2 py-1 backdrop-blur-sm">
+                  <motion.div
+                    className="w-3 h-3 border border-intent-primary/35 border-t-intent-primary"
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 0.9, repeat: Infinity, ease: 'linear' }}
+                    style={{ borderRadius: '50%' }}
+                  />
+                </div>
+              )}
+              {explorer.isVirtualView ? (
+                <FileExplorerHomeContent
+                  currentPath={explorer.currentPath}
+                  files={explorer.files}
+                  selected={explorer.selected}
+                  driveState={explorer.driveState}
+                  networkMountState={explorer.networkMountState}
+                  localServiceState={explorer.localServiceState}
+                  onSelect={explorer.select}
+                  onOpen={explorer.open}
+                />
+              ) : explorer.isLoading && explorer.files.length === 0 ? (
                 <div className="flex items-center justify-center h-32">
                   <motion.div
                     className="w-6 h-6 border border-intent-primary/40 border-t-intent-primary"
@@ -179,23 +214,22 @@ export function FileExplorer({ initialPath, onClose, onMouseStateChange, surface
               )}
             </ScrollArea>
 
-            {/* Preview panel */}
-            {explorer.showPreview && (
+            {explorer.showPreview && !explorer.isVirtualView && (
               <div className="w-[220px] min-w-[220px] border-l border-intent-primary/10">
                 <FileExplorerPreview file={explorer.previewFile} content={explorer.previewContent} />
               </div>
             )}
           </div>
 
-          {/* Status bar */}
           <FileExplorerStatusBar
             files={explorer.files}
             selected={explorer.selected}
             allFiles={explorer.allFiles}
-            currentDrive={currentDrive}
+            currentDrive={explorer.currentDrive}
           />
+          </div>
         </div>
-      </FuturisticFrame>
+      </WindowFrame>
 
       {/* Context menu */}
       <FileExplorerContextMenu
@@ -213,7 +247,10 @@ export function FileExplorer({ initialPath, onClose, onMouseStateChange, surface
         onNewFile={handleNewFile}
         onCopy={explorer.copy}
         onCut={explorer.cut}
-        onPaste={explorer.paste}
+        onPaste={async () => {
+          const success = await explorer.paste();
+          if (success) playSound('moveSuccess');
+        }}
         onRefresh={explorer.refresh}
       />
     </motion.div>

@@ -7,9 +7,9 @@ import type { CognitiveUISchema } from '@/components/cognitive/dynamic/types';
  * Chaque réponse/erreur/action crée une carte séparée
  */
 
-const DEFAULT_DISMISS_MS = 60000; // 60 secondes par défaut
-const ERROR_DISMISS_MS = 60000;
-const ACTION_DISMISS_MS = 0; // Les actions ne se ferment pas auto
+const DEFAULT_DISMISS_MS = 10000;
+const ERROR_DISMISS_MS = 8500;
+const ACTION_DISMISS_MS = 7000;
 const CARD_WIDTH = 540;
 const CARD_HEIGHT = 320;
 const VIEWPORT_MARGIN = 40;

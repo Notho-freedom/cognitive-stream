@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { QUICK_ACCESS_PATHS, isVirtualExplorerPath } from '@/types/explorer.types';
 
 interface FileExplorerBreadcrumbProps {
   path: string;
@@ -6,6 +7,30 @@ interface FileExplorerBreadcrumbProps {
 }
 
 export function FileExplorerBreadcrumb({ path, onNavigate }: FileExplorerBreadcrumbProps) {
+  if (isVirtualExplorerPath(path)) {
+    const items = path === QUICK_ACCESS_PATHS.thisPc
+      ? [{ label: 'Ce PC', target: QUICK_ACCESS_PATHS.thisPc }]
+      : [
+          { label: 'Ce PC', target: QUICK_ACCESS_PATHS.thisPc },
+          { label: 'Réseau', target: QUICK_ACCESS_PATHS.network },
+        ];
+
+    return (
+      <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-intent-primary/8 overflow-x-auto">
+        {items.map((item, index) => (
+          <div key={item.target} className="flex items-center gap-0.5">
+            {index > 0 && <Separator />}
+            <BreadcrumbSegment
+              label={item.label}
+              isLast={index === items.length - 1}
+              onClick={() => onNavigate(item.target)}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   const normalizedPath = path.replace(/\\/g, '/');
   const segments = normalizedPath.split('/').filter(Boolean);
   const isAbsolute = normalizedPath.startsWith('/');

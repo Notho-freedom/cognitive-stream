@@ -1,8 +1,12 @@
+export type ExplorerVirtualPath = 'virtual:this-pc' | 'virtual:network';
+export type ExplorerLoadStatus = 'ready' | 'loading' | 'partial' | 'stale' | 'timeout' | 'error';
+export type ExplorerCacheSource = 'memory' | 'disk' | 'redis' | 'live';
+
 export interface FileEntity {
   id: string;
   name: string;
   path: string;
-  type: 'file' | 'directory';
+  type: 'file' | 'directory' | 'virtual';
   size: number;
   extension?: string;
   mimeType?: string;
@@ -13,6 +17,20 @@ export interface FileEntity {
   isReadonly?: boolean;
   permissions?: string;
   icon?: string;
+  iconKey?: string;
+  iconPath?: string;
+  kind?:
+    | 'file'
+    | 'directory'
+    | 'drive'
+    | 'network-mount'
+    | 'local-service'
+    | 'quick-access'
+    | 'virtual-location';
+  targetPath?: string;
+  subtitle?: string;
+  description?: string;
+  meta?: Record<string, string | number | boolean | null | undefined>;
 }
 
 export interface DriveInfo {
@@ -53,6 +71,29 @@ export interface ExplorerState {
   drives: DriveInfo[];
 }
 
+export interface NetworkMountInfo {
+  name?: string;
+  root?: string;
+  displayRoot?: string;
+  used?: number;
+  free?: number;
+}
+
+export interface LocalServiceInfo {
+  address?: string;
+  port: number;
+  pid?: number;
+  processName?: string | null;
+  url?: string;
+}
+
+export interface ExplorerSectionState {
+  status: ExplorerLoadStatus;
+  source?: ExplorerCacheSource;
+  lastUpdatedAt?: number;
+  error?: string | null;
+}
+
 export interface ExplorerContextAction {
   id: string;
   label: string;
@@ -64,7 +105,9 @@ export interface ExplorerContextAction {
 }
 
 export const QUICK_ACCESS_PATHS = {
-  home: '~',
+  home: 'virtual:this-pc' as ExplorerVirtualPath,
+  thisPc: 'virtual:this-pc' as ExplorerVirtualPath,
+  network: 'virtual:network' as ExplorerVirtualPath,
   desktop: '~/Desktop',
   documents: '~/Documents',
   downloads: '~/Downloads',
@@ -112,4 +155,8 @@ export function formatFileSize(bytes: number): string {
 export function getFileExtension(name: string): string {
   const dot = name.lastIndexOf('.');
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+}
+
+export function isVirtualExplorerPath(path: string): path is ExplorerVirtualPath {
+  return path === 'virtual:this-pc' || path === 'virtual:network';
 }

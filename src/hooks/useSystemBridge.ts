@@ -108,10 +108,30 @@ interface SystemMetrics {
   };
 }
 
+interface ExplorerSettings {
+  explorerIntegrationEnabled: boolean;
+  explorerIntegrationMode: 'global' | 'folders-only';
+}
+
+interface CacheBackedPayload<T> {
+  success: boolean;
+  data: T;
+  status: 'ready' | 'loading' | 'partial' | 'stale' | 'timeout' | 'error';
+  source?: 'memory' | 'disk' | 'redis' | 'live';
+  lastUpdatedAt?: number;
+  error?: string;
+}
+
 interface OutputEvent {
   type: 'stdout' | 'stderr';
   data: string;
   pid?: number;
+}
+
+interface ExplorerOpenRequest {
+  path: string;
+  source: 'folder' | 'hotkey' | string;
+  timestamp: number;
 }
 
 interface CognitiveBridge {
@@ -121,11 +141,21 @@ interface CognitiveBridge {
   readFile: (path: string) => Promise<FileReadResult>;
   writeFile: (path: string, content: string) => Promise<FileWriteResult>;
   listDir: (path: string, options?: { showHidden?: boolean }) => Promise<DirListResult>;
+  watchDir: (path: string, callback: (event: { path: string; eventType: string; filename?: string; timestamp: number }) => void) => (() => void) | Promise<() => void>;
   exists: (path: string) => Promise<{ exists: boolean; path: string }>;
   delete: (path: string, options?: { recursive?: boolean }) => Promise<{ success: boolean; path: string; error?: string }>;
+  rename: (oldPath: string, newPath: string) => Promise<{ success: boolean; error?: string }>;
+  mkdir: (path: string) => Promise<{ success: boolean; path?: string; error?: string }>;
+  copy: (src: string, dest: string) => Promise<{ success: boolean; error?: string }>;
+  move: (src: string, dest: string) => Promise<{ success: boolean; error?: string }>;
+  getDrives: () => Promise<CacheBackedPayload<Array<{ mount: string; total: number; used: number; usage: number; fsType?: string; label?: string }>>>;
   getSystemInfo: () => Promise<SystemInfo>;
   getSystemMetrics: () => Promise<SystemMetrics>;
   getFileIcon: (path: string) => Promise<{ success: boolean; path: string; dataUrl?: string; error?: string }>;
+  getFileIcons: (entries: Array<{ key: string; path: string; extension?: string; isDirectory?: boolean }>) => Promise<{
+    success: boolean;
+    icons: Array<{ success: boolean; key: string; path: string; dataUrl?: string; cacheScope?: string; error?: string }>;
+  }>;
   resolveShortcut: (path: string) => Promise<{
     success: boolean;
     path: string;
@@ -135,6 +165,13 @@ interface CognitiveBridge {
     workingDirectory?: string | null;
     error?: string;
   }>;
+  getExplorerSettings: () => Promise<ExplorerSettings>;
+  setExplorerSettings: (settings: Partial<ExplorerSettings>) => Promise<ExplorerSettings>;
+  getNetworkMounts: () => Promise<CacheBackedPayload<Array<{ name?: string; root?: string; displayRoot?: string; used?: number; free?: number }>>>;
+  getListeningServices: () => Promise<CacheBackedPayload<Array<{ address?: string; port: number; pid?: number; processName?: string | null; url?: string }>>>;
+  invalidateExplorerDirCache: (path: string) => Promise<{ success: boolean; path: string }>;
+  notifyExplorerReady: () => void;
+  onExplorerOpenRequest: (callback: (request: ExplorerOpenRequest) => void) => () => void;
   minimize: () => void;
   maximize: () => void;
   close: () => void;
@@ -202,6 +239,13 @@ export function useSystemBridge() {
       return { success: false, path, error: 'System bridge not available. Running in browser mode.' };
     }
     return window.cognitiveBridge.getFileIcon(path);
+  }, []);
+
+  const getFileIcons = useCallback(async (entries: Array<{ key: string; path: string; extension?: string; isDirectory?: boolean }>) => {
+    if (!window.cognitiveBridge) {
+      return { success: false, icons: [] };
+    }
+    return window.cognitiveBridge.getFileIcons(entries);
   }, []);
 
   const resolveShortcut = useCallback(async (path: string) => {
@@ -281,12 +325,133 @@ export function useSystemBridge() {
     return window.cognitiveBridge.delete(path, options);
   }, []);
 
+  const renameItem = useCallback(async (oldPath: string, newPath: string) => {
+    if (!window.cognitiveBridge) {
+      return {
+        success: false,
+        error: 'System bridge not available. Running in browser mode.',
+      };
+    }
+    return window.cognitiveBridge.rename(oldPath, newPath);
+  }, []);
+
+  const mkdir = useCallback(async (path: string) => {
+    if (!window.cognitiveBridge) {
+      return {
+        success: false,
+        error: 'System bridge not available. Running in browser mode.',
+      };
+    }
+    return window.cognitiveBridge.mkdir(path);
+  }, []);
+
+  const copyItem = useCallback(async (src: string, dest: string) => {
+    if (!window.cognitiveBridge) {
+      return {
+        success: false,
+        error: 'System bridge not available. Running in browser mode.',
+      };
+    }
+    return window.cognitiveBridge.copy(src, dest);
+  }, []);
+
+  const moveItem = useCallback(async (src: string, dest: string) => {
+    if (!window.cognitiveBridge) {
+      return {
+        success: false,
+        error: 'System bridge not available. Running in browser mode.',
+      };
+    }
+    return window.cognitiveBridge.move(src, dest);
+  }, []);
+
+  const getDrives = useCallback(async () => {
+    if (!window.cognitiveBridge) {
+      return { success: false, data: [], status: 'error' };
+    }
+    return window.cognitiveBridge.getDrives();
+  }, []);
+
+  const watchDir = useCallback((path: string, callback: (event: { path: string; eventType: string; filename?: string; timestamp: number }) => void) => {
+    if (!window.cognitiveBridge) {
+      return () => {};
+    }
+
+    const cleanupOrPromise = window.cognitiveBridge.watchDir(path, callback);
+    if (typeof cleanupOrPromise === 'function') {
+      return () => {
+        void cleanupOrPromise();
+      };
+    }
+
+    let activeCleanup: (() => void) | null = null;
+    void cleanupOrPromise.then((cleanup) => {
+      activeCleanup = cleanup;
+    });
+
+    return () => {
+      activeCleanup?.();
+    };
+  }, []);
+
   // Window controls
   const windowControls = {
     minimize: () => window.cognitiveBridge?.minimize(),
     maximize: () => window.cognitiveBridge?.maximize(),
     close: () => window.cognitiveBridge?.close(),
   };
+
+  const notifyExplorerReady = useCallback(() => {
+    window.cognitiveBridge?.notifyExplorerReady();
+  }, []);
+
+  const getExplorerSettings = useCallback(async (): Promise<ExplorerSettings> => {
+    if (!window.cognitiveBridge) {
+      return {
+        explorerIntegrationEnabled: true,
+        explorerIntegrationMode: 'global',
+      };
+    }
+    return window.cognitiveBridge.getExplorerSettings();
+  }, []);
+
+  const setExplorerSettings = useCallback(async (settings: Partial<ExplorerSettings>): Promise<ExplorerSettings> => {
+    if (!window.cognitiveBridge) {
+      return {
+        explorerIntegrationEnabled: settings.explorerIntegrationEnabled ?? true,
+        explorerIntegrationMode: settings.explorerIntegrationMode === 'folders-only' ? 'folders-only' : 'global',
+      };
+    }
+    return window.cognitiveBridge.setExplorerSettings(settings);
+  }, []);
+
+  const getNetworkMounts = useCallback(async () => {
+    if (!window.cognitiveBridge) {
+      return { success: false, data: [], status: 'error' };
+    }
+    return window.cognitiveBridge.getNetworkMounts();
+  }, []);
+
+  const getListeningServices = useCallback(async () => {
+    if (!window.cognitiveBridge) {
+      return { success: false, data: [], status: 'error' };
+    }
+    return window.cognitiveBridge.getListeningServices();
+  }, []);
+
+  const invalidateExplorerDirCache = useCallback(async (path: string) => {
+    if (!window.cognitiveBridge) {
+      return { success: false, path };
+    }
+    return window.cognitiveBridge.invalidateExplorerDirCache(path);
+  }, []);
+
+  const onExplorerOpenRequest = useCallback((callback: (request: ExplorerOpenRequest) => void) => {
+    if (!window.cognitiveBridge) {
+      return () => {};
+    }
+    return window.cognitiveBridge.onExplorerOpenRequest(callback);
+  }, []);
 
   // Clear output buffer
   const clearOutput = useCallback(() => {
@@ -307,15 +472,42 @@ export function useSystemBridge() {
     readFile,
     writeFile,
     listDir,
+    watchDir,
     exists,
     delete: deleteItem,
+    rename: renameItem,
+    mkdir,
+    copy: copyItem,
+    move: moveItem,
+    getDrives,
     
     // Window
     window: windowControls,
     getSystemMetrics,
     getFileIcon,
+    getFileIcons,
     resolveShortcut,
+    getExplorerSettings,
+    setExplorerSettings,
+    getNetworkMounts,
+    getListeningServices,
+    invalidateExplorerDirCache,
+    notifyExplorerReady,
+    onExplorerOpenRequest,
   };
 }
 
-export type { ExecResult, SpawnResult, FileReadResult, FileWriteResult, DirListResult, DirItem, SystemInfo, SystemMetrics, OutputEvent };
+export type {
+  ExecResult,
+  SpawnResult,
+  FileReadResult,
+  FileWriteResult,
+  DirListResult,
+  DirItem,
+  SystemInfo,
+  SystemMetrics,
+  ExplorerSettings,
+  CacheBackedPayload,
+  OutputEvent,
+  ExplorerOpenRequest,
+};

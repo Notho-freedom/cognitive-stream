@@ -1,9 +1,11 @@
 import { useCallback, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { Folder, File, ChevronUp, ChevronDown } from 'lucide-react';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 import type { FileEntity, ViewMode, SortField, SortOrder } from '@/types/explorer.types';
-import { formatFileSize, getFileExtension } from '@/types/explorer.types';
+import { formatFileSize } from '@/types/explorer.types';
+import { ExplorerItemIcon } from './ExplorerItemIcon';
+import { useExplorerIcons } from '@/hooks/useExplorerIcons';
 
 interface FileExplorerContentProps {
   files: FileEntity[];
@@ -25,18 +27,23 @@ export function FileExplorerContent({
   files, viewMode, sortField, sortOrder, selected, renaming,
   onSelect, onOpen, onPreview, onSort, onRename, onSetRenaming, onContextMenu,
 }: FileExplorerContentProps) {
+  const icons = useExplorerIcons(files);
+
   if (viewMode === 'grid') return (
     <GridView files={files} selected={selected} renaming={renaming}
+      icons={icons}
       onSelect={onSelect} onOpen={onOpen} onPreview={onPreview}
       onRename={onRename} onSetRenaming={onSetRenaming} onContextMenu={onContextMenu} />
   );
   if (viewMode === 'list') return (
     <ListView files={files} selected={selected} renaming={renaming}
+      icons={icons}
       onSelect={onSelect} onOpen={onOpen} onPreview={onPreview}
       onRename={onRename} onSetRenaming={onSetRenaming} onContextMenu={onContextMenu} />
   );
   return (
     <DetailsView files={files} selected={selected} renaming={renaming}
+      icons={icons}
       sortField={sortField} sortOrder={sortOrder}
       onSelect={onSelect} onOpen={onOpen} onPreview={onPreview}
       onSort={onSort} onRename={onRename} onSetRenaming={onSetRenaming} onContextMenu={onContextMenu} />
@@ -69,7 +76,7 @@ function InlineRename({ name, onConfirm, onCancel }: {
 }
 
 // ── GRID VIEW ──
-function GridView({ files, selected, renaming, onSelect, onOpen, onPreview, onRename, onSetRenaming, onContextMenu }: Omit<FileExplorerContentProps, 'viewMode' | 'sortField' | 'sortOrder' | 'onSort'>) {
+function GridView({ files, selected, renaming, icons, onSelect, onOpen, onPreview, onRename, onSetRenaming, onContextMenu }: Omit<FileExplorerContentProps, 'viewMode' | 'sortField' | 'sortOrder' | 'onSort'> & { icons: Record<string, string> }) {
   return (
     <div className="flex flex-wrap gap-1 p-2 content-start">
       <AnimatePresence>
@@ -92,9 +99,7 @@ function GridView({ files, selected, renaming, onSelect, onOpen, onPreview, onRe
               onDoubleClick={() => onOpen(file)}
               onContextMenu={e => onContextMenu(e, file)}
             >
-              {file.type === 'directory'
-                ? <Folder className="w-8 h-8 text-intent-primary/60" />
-                : <File className="w-8 h-8 text-text-ghost/40" />}
+              <ExplorerItemIcon entity={file} iconUrl={icons[file.iconKey || file.id]} size="md" />
               {renaming === file.id ? (
                 <InlineRename
                   name={file.name}
@@ -113,7 +118,7 @@ function GridView({ files, selected, renaming, onSelect, onOpen, onPreview, onRe
 }
 
 // ── LIST VIEW ──
-function ListView({ files, selected, renaming, onSelect, onOpen, onPreview, onRename, onSetRenaming, onContextMenu }: Omit<FileExplorerContentProps, 'viewMode' | 'sortField' | 'sortOrder' | 'onSort'>) {
+function ListView({ files, selected, renaming, icons, onSelect, onOpen, onPreview, onRename, onSetRenaming, onContextMenu }: Omit<FileExplorerContentProps, 'viewMode' | 'sortField' | 'sortOrder' | 'onSort'> & { icons: Record<string, string> }) {
   return (
     <div className="flex flex-col">
       {files.map(file => (
@@ -129,9 +134,7 @@ function ListView({ files, selected, renaming, onSelect, onOpen, onPreview, onRe
           onDoubleClick={() => onOpen(file)}
           onContextMenu={e => onContextMenu(e, file)}
         >
-          {file.type === 'directory'
-            ? <Folder className="w-4 h-4 text-intent-primary/60 shrink-0" />
-            : <File className="w-4 h-4 text-text-ghost/40 shrink-0" />}
+          <ExplorerItemIcon entity={file} iconUrl={icons[file.iconKey || file.id]} size="sm" />
           {renaming === file.id ? (
             <InlineRename
               name={file.name}
@@ -148,7 +151,7 @@ function ListView({ files, selected, renaming, onSelect, onOpen, onPreview, onRe
 }
 
 // ── DETAILS VIEW ──
-function DetailsView({ files, selected, renaming, sortField, sortOrder, onSelect, onOpen, onPreview, onSort, onRename, onSetRenaming, onContextMenu }: Omit<FileExplorerContentProps, 'viewMode'>) {
+function DetailsView({ files, selected, renaming, icons, sortField, sortOrder, onSelect, onOpen, onPreview, onSort, onRename, onSetRenaming, onContextMenu }: Omit<FileExplorerContentProps, 'viewMode'> & { icons: Record<string, string> }) {
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return null;
     return sortOrder === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />;
@@ -179,9 +182,7 @@ function DetailsView({ files, selected, renaming, sortField, sortOrder, onSelect
           onContextMenu={e => onContextMenu(e, file)}
         >
           <div className="flex items-center gap-2 flex-1 min-w-0 px-2 py-1">
-            {file.type === 'directory'
-              ? <Folder className="w-3.5 h-3.5 text-intent-primary/60 shrink-0" />
-              : <File className="w-3.5 h-3.5 text-text-ghost/40 shrink-0" />}
+            <ExplorerItemIcon entity={file} iconUrl={icons[file.iconKey || file.id]} size="sm" />
             {renaming === file.id ? (
               <InlineRename
                 name={file.name}
@@ -193,10 +194,18 @@ function DetailsView({ files, selected, renaming, sortField, sortOrder, onSelect
             )}
           </div>
           <div className="w-[70px] px-2 py-1 text-right text-text-ghost/50">
-            {file.type === 'file' ? formatFileSize(file.size) : '--'}
+            {file.type === 'file' ? formatFileSize(file.size) : file.kind === 'drive' ? formatFileSize(file.size) : '--'}
           </div>
           <div className="w-[60px] px-2 py-1 text-text-ghost/50">
-            {file.type === 'directory' ? 'Dossier' : (file.extension?.toUpperCase() || '?')}
+            {file.kind === 'drive'
+              ? 'Disque'
+              : file.kind === 'network-mount'
+                ? 'Réseau'
+                : file.kind === 'local-service'
+                  ? 'Local'
+                  : file.type === 'directory'
+                    ? 'Dossier'
+                    : (file.extension?.toUpperCase() || '?')}
           </div>
           <div className="w-[120px] px-2 py-1 text-text-ghost/50">
             {file.updatedAt ? new Date(file.updatedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}
