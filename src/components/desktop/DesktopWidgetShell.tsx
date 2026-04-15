@@ -9,7 +9,6 @@ import { useCognitiveBrain } from '@/hooks/useCognitiveBrain';
 import { useCognitiveEdgeTTS } from '@/hooks/useCognitiveEdgeTTS';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useFloatingCards } from '@/hooks/useFloatingCards';
-import { useSystemMetrics } from '@/hooks/useSystemMetrics';
 import { useSystemBridge } from '@/hooks/useSystemBridge';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useDesktopIcons } from '@/hooks/useDesktopIcons';
@@ -23,7 +22,6 @@ import { DesktopSidePanel } from './DesktopSidePanel';
 import { DesktopIconZone } from './DesktopIconZone';
 import { FileExplorer } from '@/components/explorer/FileExplorer';
 
-// Mapping des modes du cerveau
 const brainModeLabels: Record<string, string> = {
   idle: 'VEILLE',
   listening: 'ÉCOUTE',
@@ -35,10 +33,8 @@ const brainModeLabels: Record<string, string> = {
 };
 
 /**
- * DesktopWidgetShell — Layout de widgets bureau
- * - BridgeIndicator en bas-droit
- * - Cartes flottantes au centre
- * - Barre de commande en bas-centre
+ * DesktopWidgetShell — Bureau immersif type Big Picture
+ * Même fond que la vue web, BridgeIndicator top-left, CommandBar Ctrl+K
  */
 function DesktopWidgetShellInner() {
   const { push: notifyPush } = useNotifications();
@@ -46,18 +42,19 @@ function DesktopWidgetShellInner() {
   const { play: playSound, setEnabled: setSoundEnabled, isEnabled: isSoundEnabled } = useSoundEffects();
   const floatingCards = useFloatingCards();
   const activeSchemaCardIdRef = useRef<string | null>(null);
-  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(true);
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [explorerPath, setExplorerPath] = useState<string | undefined>();
   const [explorerOpenSource, setExplorerOpenSource] = useState<'shell' | 'widget' | 'internal'>('internal');
   const [explorerOpenToken, setExplorerOpenToken] = useState(0);
-  const [panelTab, setPanelTab] = useState<'system' | 'settings'>('system');
-  const [surfaceOpacity, setSurfaceOpacity] = useState(0.75);
+  const [panelTab, setPanelTab] = useState<'system' | 'settings'>('settings');
+  const [surfaceOpacity, setSurfaceOpacity] = useState(0.85);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [soundsEnabled, setSoundsEnabled] = useState(isSoundEnabled());
-  const [showDesktopApps, setShowDesktopApps] = usePersistentState('desktop:show-apps-widget', false);
-  const [explorerTakeoverEnabled, setExplorerTakeoverEnabled] = useState(true);
-  const [explorerTakeoverState, setExplorerTakeoverState] = useState<'native' | 'armed' | 'restoring' | 'degraded'>('native');
+  const [showDesktopApps, setShowDesktopApps] = usePersistentState('desktop:show-apps-widget', true);
+  const [commandBarVisible, setCommandBarVisible] = useState(false);
+  const [explorerIntegrationEnabled, setExplorerIntegrationEnabled] = useState(true);
+  const [explorerIntegrationMode, setExplorerIntegrationMode] = useState<'global' | 'folders-only'>('global');
   const {
     isAvailable: isElectronBridgeAvailable,
     notifyExplorerReady,
@@ -66,12 +63,6 @@ function DesktopWidgetShellInner() {
     setExplorerSettings,
   } = useSystemBridge();
 
-  const metricsEnabled = false;
-  const metricsInterval = panelCollapsed ? 8000 : panelTab === 'system' ? 2000 : 5000;
-  const { metrics, isAvailable: isSystemAvailable } = useSystemMetrics({
-    intervalMs: metricsInterval,
-    enabled: metricsEnabled,
-  });
   const desktopIcons = useDesktopIcons(showDesktopApps);
 
   const {
@@ -100,7 +91,6 @@ function DesktopWidgetShellInner() {
     reset,
   } = brain;
 
-  // TTS
   const tts = useCognitiveEdgeTTS({ autoPlay: true, maxLength: 500, skipIfSpeaking: true });
 
   const voiceInput = useVoiceInput({
@@ -115,14 +105,12 @@ function DesktopWidgetShellInner() {
     return brainModeLabels[mentalState.mode] || mentalState.mode.toUpperCase();
   }, [mentalState]);
 
-  // Track previous states to detect transitions
   const prevSchemaRef = useRef(schema);
   const prevErrorRef = useRef(error);
   const prevThoughtRef = useRef(thought);
   const prevIsLoadingRef = useRef(isLoading);
   const prevUserMessageCountRef = useRef(0);
   const lastSpokenRef = useRef<string | null>(null);
-  const peakCooldownRef = useRef(0);
 
   const userMessageCount = useMemo(
     () => messages.filter(message => message.role === 'user').length,
@@ -136,7 +124,6 @@ function DesktopWidgetShellInner() {
     prevUserMessageCountRef.current = userMessageCount;
   }, [userMessageCount]);
 
-  // React to schema changes → push floating card
   useEffect(() => {
     if (schema && schema !== prevSchemaRef.current) {
       if (activeSchemaCardIdRef.current) {
@@ -156,7 +143,6 @@ function DesktopWidgetShellInner() {
     prevSchemaRef.current = schema;
   }, [schema, playSound, floatingCards]);
 
-  // React to errors → push error card
   useEffect(() => {
     if (error && error !== prevErrorRef.current) {
       playSound('error');
@@ -165,7 +151,6 @@ function DesktopWidgetShellInner() {
     prevErrorRef.current = error;
   }, [error, playSound, floatingCards]);
 
-  // React to thought changes → notify instead of rendering cards
   useEffect(() => {
     if (thought && thought !== prevThoughtRef.current && thought.length > 20) {
       const clipped = thought.length > 160 ? `${thought.slice(0, 160)}…` : thought;
@@ -174,7 +159,6 @@ function DesktopWidgetShellInner() {
     prevThoughtRef.current = thought;
   }, [thought, notifyPush]);
 
-  // Sound when loading starts
   useEffect(() => {
     if (isLoading && !prevIsLoadingRef.current) {
       playSound('thinking');
@@ -182,12 +166,10 @@ function DesktopWidgetShellInner() {
     prevIsLoadingRef.current = isLoading;
   }, [isLoading, playSound]);
 
-  // Sync sound toggle
   useEffect(() => {
     setSoundEnabled(soundsEnabled);
   }, [soundsEnabled, setSoundEnabled]);
 
-  // Voice output: speak the first text block when a stable schema arrives
   useEffect(() => {
     if (!tts.isEnabled || !schema || isStreaming) return;
     if (schema.metadata?.isTransition) return;
@@ -200,47 +182,16 @@ function DesktopWidgetShellInner() {
     tts.speakThought(textToSpeak);
   }, [schema, isStreaming, tts]);
 
-  // System peak detection → suggest performance mode
-  useEffect(() => {
-    if (!metricsEnabled) return;
-    if (!metrics) return;
-    const now = Date.now();
-    if (now - peakCooldownRef.current < 60000) return;
-
-    const cpu = metrics.cpu?.usage ?? 0;
-    const mem = metrics.memory?.usage ?? 0;
-    const gpu = metrics.gpu?.usage ?? 0;
-
-    if (cpu > 85 || mem > 90 || gpu > 90) {
-      peakCooldownRef.current = now;
-      notifyPush({
-        message: `Pic détecté — CPU ${cpu.toFixed(0)}% • RAM ${mem.toFixed(0)}%${gpu ? ` • GPU ${gpu.toFixed(0)}%` : ''}`,
-        priority: 'high',
-        dismissible: true,
-        action: {
-          label: 'Réduire la charge',
-          onClick: () => {
-            setReduceMotion(true);
-            setSoundsEnabled(false);
-          },
-        },
-      });
-    }
-  }, [metrics, notifyPush, metricsEnabled]);
-
-  // Wrapped sendMessage with sound
   const handleSend = useCallback((msg: string) => {
     playSound('send');
     sendMessage(msg);
   }, [playSound, sendMessage]);
 
-  // Wrapped action with sound
   const handleCardAction = useCallback((action: Parameters<typeof handleAction>[0]) => {
     playSound('action');
     handleAction(action);
   }, [playSound, handleAction]);
 
-  // Wrapped dismiss with sound
   const handleDismiss = useCallback((id: string) => {
     playSound('cardDismiss');
     if (activeSchemaCardIdRef.current === id) {
@@ -253,17 +204,13 @@ function DesktopWidgetShellInner() {
     floatingCards.updateCard(id, { position });
   }, [floatingCards]);
 
-  // Click-through pour Electron
   const handleMouseState = (inside: boolean) => {
     const bridge = (window as Window & {
       cognitiveBridge?: { widgetMouseEnter?: () => void; widgetMouseLeave?: () => void };
     }).cognitiveBridge;
     if (!bridge) return;
-    if (inside) {
-      bridge.widgetMouseEnter?.();
-    } else {
-      bridge.widgetMouseLeave?.();
-    }
+    if (inside) bridge.widgetMouseEnter?.();
+    else bridge.widgetMouseLeave?.();
   };
 
   const openExplorer = useCallback((path?: string, source: 'shell' | 'widget' | 'internal' = 'internal') => {
@@ -286,7 +233,6 @@ function DesktopWidgetShellInner() {
     });
 
     notifyExplorerReady();
-
     return unsubscribe;
   }, [getExplorerSettings, isElectronBridgeAvailable, notifyExplorerReady, onExplorerOpenRequest, openExplorer]);
 
@@ -298,10 +244,14 @@ function DesktopWidgetShellInner() {
     setExplorerTakeoverState(next.explorerTakeoverState);
   }, [explorerTakeoverEnabled, setExplorerSettings]);
 
+  const toggleCommandBar = useCallback(() => {
+    setCommandBarVisible(prev => !prev);
+  }, []);
+
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
       <>
-      {/* Dialogs (toujours au premier plan) */}
+      {/* Dialogs */}
       <AutonomyConfirmDialog
         open={Boolean(pendingConfirmation)}
         action={pendingConfirmation?.action}
@@ -319,7 +269,7 @@ function DesktopWidgetShellInner() {
       {/* Notifications */}
       <NotificationQueue position="top-right" onMouseStateChange={handleMouseState} />
 
-      {/* Bridge Indicator — coin inférieur droit */}
+      {/* Bridge Indicator — top-left */}
       <BridgeIndicator
         brainMode={brainMode}
         isAutonomous={isAutonomousMode}
@@ -327,10 +277,9 @@ function DesktopWidgetShellInner() {
         autonomyLimit={autonomyLimit}
         activeTasks={activeTasks.length}
         onMouseStateChange={handleMouseState}
-        surfaceOpacity={surfaceOpacity}
       />
 
-      {/* Floating Response Cards — centre de l'écran */}
+      {/* Floating Response Cards — centre */}
       <div className="fixed inset-0 pointer-events-none z-40">
         <AnimatePresence mode="popLayout">
           {floatingCards.cards.map((card) => (
@@ -348,7 +297,7 @@ function DesktopWidgetShellInner() {
         </AnimatePresence>
       </div>
 
-      {/* Desktop icons zone — gauche */}
+      {/* Desktop icons zone */}
       {showDesktopApps && (
         <DesktopIconZone
           icons={desktopIcons.icons}
@@ -374,10 +323,10 @@ function DesktopWidgetShellInner() {
         )}
       </AnimatePresence>
 
-      {/* Side Panel — centre droit */}
+      {/* Side Panel */}
       <DesktopSidePanel
-        metrics={metrics}
-        isAvailable={metricsEnabled && isSystemAvailable}
+        metrics={null}
+        isAvailable={false}
         isCollapsed={panelCollapsed}
         activeTab={panelTab}
         onToggleCollapse={() => setPanelCollapsed(prev => !prev)}
@@ -410,7 +359,7 @@ function DesktopWidgetShellInner() {
         }}
       />
 
-      {/* Command Bar — bas-centre */}
+      {/* Command Bar — hidden by default, Ctrl+K to show */}
       <DesktopCommandBar
         onSend={handleSend}
         onConfirmAction={confirmAction}
@@ -424,7 +373,8 @@ function DesktopWidgetShellInner() {
         brainMode={brainMode}
         messageCount={messages.length}
         onMouseStateChange={handleMouseState}
-        surfaceOpacity={surfaceOpacity}
+        visible={commandBarVisible}
+        onToggleVisible={toggleCommandBar}
       />
       </>
     </MotionConfig>
@@ -434,10 +384,14 @@ function DesktopWidgetShellInner() {
 export function DesktopWidgetShell() {
   return (
     <NotificationProvider>
-      <div className="fixed inset-0 pointer-events-none" style={{ background: 'transparent' }}>
-        <div className="pointer-events-auto">
-          <DesktopWidgetShellInner />
+      {/* Immersive desktop — same background as web, no transparent overlay */}
+      <div className="fixed inset-0">
+        {/* Ambient background identical to web */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-1/3 left-1/3 w-[600px] h-[600px] bg-intent-primary/3 rounded-full blur-[120px]" />
+          <div className="absolute bottom-1/3 right-1/3 w-[400px] h-[400px] bg-intent-secondary/3 rounded-full blur-[100px]" />
         </div>
+        <DesktopWidgetShellInner />
       </div>
     </NotificationProvider>
   );
