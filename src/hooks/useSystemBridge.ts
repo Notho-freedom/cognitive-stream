@@ -365,9 +365,9 @@ export function useSystemBridge() {
     return window.cognitiveBridge.move(src, dest);
   }, []);
 
-  const getDrives = useCallback(async () => {
+  const getDrives = useCallback(async (): Promise<CacheBackedPayload<Array<{ mount: string; total: number; used: number; usage: number; fsType?: string; label?: string }>>> => {
     if (!window.cognitiveBridge) {
-      return { success: false, data: [], status: 'error' };
+      return { success: false, data: [], status: 'error', source: 'memory', lastUpdatedAt: 0, error: 'Bridge not available' };
     }
     return window.cognitiveBridge.getDrives();
   }, []);
@@ -425,16 +425,16 @@ export function useSystemBridge() {
     return window.cognitiveBridge.setExplorerSettings(settings);
   }, []);
 
-  const getNetworkMounts = useCallback(async () => {
+  const getNetworkMounts = useCallback(async (): Promise<CacheBackedPayload<Array<{ name?: string; root?: string; displayRoot?: string; used?: number; free?: number }>>> => {
     if (!window.cognitiveBridge) {
-      return { success: false, data: [], status: 'error' };
+      return { success: false, data: [], status: 'error', source: 'memory', lastUpdatedAt: 0, error: 'Bridge not available' };
     }
     return window.cognitiveBridge.getNetworkMounts();
   }, []);
 
-  const getListeningServices = useCallback(async () => {
+  const getListeningServices = useCallback(async (): Promise<CacheBackedPayload<Array<{ address?: string; port: number; pid?: number; processName?: string | null; url?: string }>>> => {
     if (!window.cognitiveBridge) {
-      return { success: false, data: [], status: 'error' };
+      return { success: false, data: [], status: 'error', source: 'memory', lastUpdatedAt: 0, error: 'Bridge not available' };
     }
     return window.cognitiveBridge.getListeningServices();
   }, []);
