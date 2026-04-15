@@ -37,7 +37,12 @@ interface FileWriteResult {
 interface DirListResult {
   success: boolean;
   path: string;
+  data?: DirItem[];
   items?: DirItem[];
+  status?: 'ready' | 'loading' | 'partial' | 'stale' | 'timeout' | 'error';
+  source?: 'memory' | 'disk' | 'redis' | 'live';
+  lastUpdatedAt?: number;
+  requestId?: string;
   error?: string;
 }
 
@@ -109,8 +114,8 @@ interface SystemMetrics {
 }
 
 interface ExplorerSettings {
-  explorerIntegrationEnabled: boolean;
-  explorerIntegrationMode: 'global' | 'folders-only';
+  explorerTakeoverEnabled: boolean;
+  explorerTakeoverState: 'native' | 'armed' | 'restoring' | 'degraded';
 }
 
 interface CacheBackedPayload<T> {
@@ -119,6 +124,7 @@ interface CacheBackedPayload<T> {
   status: 'ready' | 'loading' | 'partial' | 'stale' | 'timeout' | 'error';
   source?: 'memory' | 'disk' | 'redis' | 'live';
   lastUpdatedAt?: number;
+  requestId?: string;
   error?: string;
 }
 
@@ -130,7 +136,7 @@ interface OutputEvent {
 
 interface ExplorerOpenRequest {
   path: string;
-  source: 'folder' | 'hotkey' | string;
+  source: 'shell' | 'widget' | 'internal' | string;
   timestamp: number;
 }
 
@@ -140,7 +146,7 @@ interface CognitiveBridge {
   onOutput: (callback: (event: OutputEvent) => void) => () => void;
   readFile: (path: string) => Promise<FileReadResult>;
   writeFile: (path: string, content: string) => Promise<FileWriteResult>;
-  listDir: (path: string, options?: { showHidden?: boolean }) => Promise<DirListResult>;
+  listDir: (path: string, options?: { showHidden?: boolean; requestId?: string }) => Promise<DirListResult>;
   watchDir: (path: string, callback: (event: { path: string; eventType: string; filename?: string; timestamp: number }) => void) => (() => void) | Promise<() => void>;
   exists: (path: string) => Promise<{ exists: boolean; path: string }>;
   delete: (path: string, options?: { recursive?: boolean }) => Promise<{ success: boolean; path: string; error?: string }>;
@@ -294,7 +300,7 @@ export function useSystemBridge() {
   }, []);
 
   // List directory
-  const listDir = useCallback(async (path: string, options?: { showHidden?: boolean }): Promise<DirListResult> => {
+  const listDir = useCallback(async (path: string, options?: { showHidden?: boolean; requestId?: string }): Promise<DirListResult> => {
     if (!window.cognitiveBridge) {
       return {
         success: false,
@@ -408,8 +414,8 @@ export function useSystemBridge() {
   const getExplorerSettings = useCallback(async (): Promise<ExplorerSettings> => {
     if (!window.cognitiveBridge) {
       return {
-        explorerIntegrationEnabled: true,
-        explorerIntegrationMode: 'global',
+        explorerTakeoverEnabled: true,
+        explorerTakeoverState: 'native',
       };
     }
     return window.cognitiveBridge.getExplorerSettings();
@@ -418,8 +424,8 @@ export function useSystemBridge() {
   const setExplorerSettings = useCallback(async (settings: Partial<ExplorerSettings>): Promise<ExplorerSettings> => {
     if (!window.cognitiveBridge) {
       return {
-        explorerIntegrationEnabled: settings.explorerIntegrationEnabled ?? true,
-        explorerIntegrationMode: settings.explorerIntegrationMode === 'folders-only' ? 'folders-only' : 'global',
+        explorerTakeoverEnabled: settings.explorerTakeoverEnabled ?? true,
+        explorerTakeoverState: settings.explorerTakeoverState ?? 'native',
       };
     }
     return window.cognitiveBridge.setExplorerSettings(settings);

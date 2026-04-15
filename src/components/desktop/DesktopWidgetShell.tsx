@@ -49,13 +49,15 @@ function DesktopWidgetShellInner() {
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [explorerPath, setExplorerPath] = useState<string | undefined>();
+  const [explorerOpenSource, setExplorerOpenSource] = useState<'shell' | 'widget' | 'internal'>('internal');
+  const [explorerOpenToken, setExplorerOpenToken] = useState(0);
   const [panelTab, setPanelTab] = useState<'system' | 'settings'>('system');
   const [surfaceOpacity, setSurfaceOpacity] = useState(0.75);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [soundsEnabled, setSoundsEnabled] = useState(isSoundEnabled());
   const [showDesktopApps, setShowDesktopApps] = usePersistentState('desktop:show-apps-widget', false);
-  const [explorerIntegrationEnabled, setExplorerIntegrationEnabled] = useState(true);
-  const [explorerIntegrationMode, setExplorerIntegrationMode] = useState<'global' | 'folders-only'>('global');
+  const [explorerTakeoverEnabled, setExplorerTakeoverEnabled] = useState(true);
+  const [explorerTakeoverState, setExplorerTakeoverState] = useState<'native' | 'armed' | 'restoring' | 'degraded'>('native');
   const {
     isAvailable: isElectronBridgeAvailable,
     notifyExplorerReady,
@@ -264,32 +266,37 @@ function DesktopWidgetShellInner() {
     }
   };
 
+  const openExplorer = useCallback((path?: string, source: 'shell' | 'widget' | 'internal' = 'internal') => {
+    setExplorerPath(path);
+    setExplorerOpenSource(source);
+    setExplorerOpenToken((previous) => previous + 1);
+    setExplorerOpen(true);
+  }, []);
+
   useEffect(() => {
     if (!isElectronBridgeAvailable) return;
 
     getExplorerSettings().then((settings) => {
-      setExplorerIntegrationEnabled(settings.explorerIntegrationEnabled);
-      setExplorerIntegrationMode(settings.explorerIntegrationMode);
+      setExplorerTakeoverEnabled(settings.explorerTakeoverEnabled);
+      setExplorerTakeoverState(settings.explorerTakeoverState);
     });
 
-    const unsubscribe = onExplorerOpenRequest(({ path }) => {
-      setExplorerPath(path);
-      setExplorerOpen(true);
+    const unsubscribe = onExplorerOpenRequest(({ path, source }) => {
+      openExplorer(path, source === 'shell' ? 'shell' : 'internal');
     });
 
     notifyExplorerReady();
 
     return unsubscribe;
-  }, [getExplorerSettings, isElectronBridgeAvailable, notifyExplorerReady, onExplorerOpenRequest]);
+  }, [getExplorerSettings, isElectronBridgeAvailable, notifyExplorerReady, onExplorerOpenRequest, openExplorer]);
 
-  const syncExplorerSettings = useCallback(async (updates: Partial<{ explorerIntegrationEnabled: boolean; explorerIntegrationMode: 'global' | 'folders-only' }>) => {
+  const syncExplorerSettings = useCallback(async (updates: Partial<{ explorerTakeoverEnabled: boolean }>) => {
     const next = await setExplorerSettings({
-      explorerIntegrationEnabled: updates.explorerIntegrationEnabled ?? explorerIntegrationEnabled,
-      explorerIntegrationMode: updates.explorerIntegrationMode ?? explorerIntegrationMode,
+      explorerTakeoverEnabled: updates.explorerTakeoverEnabled ?? explorerTakeoverEnabled,
     });
-    setExplorerIntegrationEnabled(next.explorerIntegrationEnabled);
-    setExplorerIntegrationMode(next.explorerIntegrationMode);
-  }, [explorerIntegrationEnabled, explorerIntegrationMode, setExplorerSettings]);
+    setExplorerTakeoverEnabled(next.explorerTakeoverEnabled);
+    setExplorerTakeoverState(next.explorerTakeoverState);
+  }, [explorerTakeoverEnabled, setExplorerSettings]);
 
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
@@ -349,7 +356,7 @@ function DesktopWidgetShellInner() {
           error={desktopIcons.error}
           surfaceOpacity={surfaceOpacity}
           onMouseStateChange={handleMouseState}
-          onOpenExplorer={(path) => { setExplorerPath(path); setExplorerOpen(true); }}
+          onOpenExplorer={(path) => openExplorer(path, 'widget')}
         />
       )}
 
@@ -358,6 +365,8 @@ function DesktopWidgetShellInner() {
         {explorerOpen && (
           <FileExplorer
             initialPath={explorerPath}
+            openSource={explorerOpenSource}
+            openToken={explorerOpenToken}
             onClose={() => setExplorerOpen(false)}
             onMouseStateChange={handleMouseState}
             surfaceOpacity={surfaceOpacity}
@@ -387,22 +396,14 @@ function DesktopWidgetShellInner() {
         onReduceMotionToggle={setReduceMotion}
         showDesktopApps={showDesktopApps}
         onShowDesktopAppsToggle={setShowDesktopApps}
-        explorerIntegrationEnabled={explorerIntegrationEnabled}
-        onExplorerIntegrationEnabledChange={(value) => {
-          setExplorerIntegrationEnabled(value);
+        explorerTakeoverEnabled={explorerTakeoverEnabled}
+        onExplorerTakeoverEnabledChange={(value) => {
+          setExplorerTakeoverEnabled(value);
           void syncExplorerSettings({
-            explorerIntegrationEnabled: value,
-            explorerIntegrationMode: value ? 'global' : 'folders-only',
+            explorerTakeoverEnabled: value,
           });
         }}
-        explorerIntegrationMode={explorerIntegrationMode}
-        onExplorerIntegrationModeChange={(value) => {
-          setExplorerIntegrationMode(value);
-          void syncExplorerSettings({
-            explorerIntegrationEnabled: true,
-            explorerIntegrationMode: value,
-          });
-        }}
+        explorerTakeoverState={explorerTakeoverState}
         onActivatePerformanceMode={() => {
           setReduceMotion(true);
           setSoundsEnabled(false);

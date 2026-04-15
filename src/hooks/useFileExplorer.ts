@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSystemBridge } from '@/hooks/useSystemBridge';
 import { useNavigationHistory } from '@/hooks/useNavigationHistory';
 import { useFileSelection } from '@/hooks/useFileSelection';
@@ -175,6 +175,7 @@ function sortEntities(files: FileEntity[], sortField: SortField, sortOrder: Sort
 export function useFileExplorer(initialPath?: string) {
   const bridge = useSystemBridge();
   const nav = useNavigationHistory(initialPath ?? QUICK_ACCESS_PATHS.home);
+  const activeDirectoryRequestIdRef = useRef<string | null>(null);
 
   const [files, setFiles] = useState<FileEntity[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -289,6 +290,8 @@ export function useFileExplorer(initialPath?: string) {
   }, [buildVirtualFiles, selection]);
 
   const loadRealDirectory = useCallback(async (dirPath: string, force = false) => {
+    const requestId = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+    activeDirectoryRequestIdRef.current = requestId;
     const cached = directoryCache.get(dirPath);
     const isFresh = cached && Date.now() - cached.timestamp < DIRECTORY_CACHE_TTL;
 
@@ -311,19 +314,27 @@ export function useFileExplorer(initialPath?: string) {
     }
 
     try {
-      const result = await bridge.listDir(dirPath, { showHidden: true });
-      if (!result.success) throw new Error(result.error ?? 'Failed to list directory');
-      const entities = (result.items ?? []).map(dirItemToEntity);
+      const result = await bridge.listDir(dirPath, { showHidden: true, requestId });
+      if (result.requestId && activeDirectoryRequestIdRef.current !== result.requestId) {
+        return;
+      }
+      if (!result.success && !(result.items?.length || result.data?.length)) {
+        throw new Error(result.error ?? 'Failed to load directory');
+      }
+      const entities = (result.items ?? result.data ?? []).map(dirItemToEntity);
       directoryCache.set(dirPath, {
         timestamp: Date.now(),
         files: entities,
       });
       setFiles(entities);
-      setError(null);
+      setError(result.success ? null : (result.error ?? null));
       setPreviewFile(null);
       setPreviewContent(null);
       selection.clear();
     } catch (err) {
+      if (activeDirectoryRequestIdRef.current !== requestId) {
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Failed to load directory';
       if (cached?.files) {
         setFiles(cached.files);
@@ -332,12 +343,15 @@ export function useFileExplorer(initialPath?: string) {
       }
       setError(message);
     } finally {
-      setIsLoading(false);
+      if (activeDirectoryRequestIdRef.current === requestId) {
+        setIsLoading(false);
+      }
     }
   }, [bridge, selection]);
 
   const loadLocation = useCallback(async (targetPath: string, force = false) => {
     if (isVirtualExplorerPath(targetPath)) {
+      activeDirectoryRequestIdRef.current = null;
       await loadVirtualLocation(targetPath, force);
       void refreshDrives();
       void refreshNetworkSnapshot();

@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import type { SystemMetrics } from '@/hooks/useSystemBridge';
 
 type PanelTab = 'system' | 'settings';
-type ExplorerMode = 'global' | 'folders-only';
+type ExplorerTakeoverState = 'native' | 'armed' | 'restoring' | 'degraded';
 
 interface DesktopSidePanelProps {
   metrics: SystemMetrics | null;
@@ -32,10 +32,9 @@ interface DesktopSidePanelProps {
   onActivatePerformanceMode: () => void;
   showDesktopApps: boolean;
   onShowDesktopAppsToggle: (value: boolean) => void;
-  explorerIntegrationEnabled: boolean;
-  onExplorerIntegrationEnabledChange: (value: boolean) => void;
-  explorerIntegrationMode: ExplorerMode;
-  onExplorerIntegrationModeChange: (value: ExplorerMode) => void;
+  explorerTakeoverEnabled: boolean;
+  onExplorerTakeoverEnabledChange: (value: boolean) => void;
+  explorerTakeoverState: ExplorerTakeoverState;
 }
 
 const PANEL_WIDTH = 320;
@@ -62,10 +61,9 @@ export function DesktopSidePanel({
   onActivatePerformanceMode,
   showDesktopApps,
   onShowDesktopAppsToggle,
-  explorerIntegrationEnabled,
-  onExplorerIntegrationEnabledChange,
-  explorerIntegrationMode,
-  onExplorerIntegrationModeChange,
+  explorerTakeoverEnabled,
+  onExplorerTakeoverEnabledChange,
+  explorerTakeoverState,
 }: DesktopSidePanelProps) {
   const memoryUsage = metrics?.memory?.usage ?? null;
   const cpuUsage = metrics?.cpu?.usage ?? null;
@@ -231,33 +229,40 @@ export function DesktopSidePanel({
                         />
                         <SettingRow
                           label="Explorateur Windows"
-                          description="Overwrite strict de l’explorateur"
-                          checked={explorerIntegrationEnabled}
-                          onChange={onExplorerIntegrationEnabledChange}
+                          description="Remplacer temporairement l’explorateur Windows"
+                          checked={explorerTakeoverEnabled}
+                          onChange={onExplorerTakeoverEnabledChange}
                         />
 
                         <div className="space-y-2 border border-intent-primary/10 p-2">
-                          <div className="text-[10px] uppercase tracking-[0.2em] text-text-ghost">Portée de l’intégration</div>
-                          <div className="flex items-center gap-2">
-                            <ModeButton
-                              active={explorerIntegrationMode === 'global'}
-                              disabled={!explorerIntegrationEnabled}
-                              onClick={() => onExplorerIntegrationModeChange('global')}
-                            >
-                              Globale
-                            </ModeButton>
-                            <ModeButton
-                              active={explorerIntegrationMode === 'folders-only'}
-                              disabled={!explorerIntegrationEnabled}
-                              onClick={() => onExplorerIntegrationModeChange('folders-only')}
-                            >
-                              Dossiers
-                            </ModeButton>
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-text-ghost">État de sécurité</div>
+                          <div className="flex items-center justify-between gap-3 text-[10px] text-text-ghost/70">
+                            <span>
+                              {explorerTakeoverEnabled
+                                ? 'Takeover strict actif pendant la session.'
+                                : 'Windows reste natif tant que le takeover est coupé.'}
+                            </span>
+                            <span className={cn(
+                              'uppercase tracking-[0.18em]',
+                              explorerTakeoverState === 'armed'
+                                ? 'text-intent-primary'
+                                : explorerTakeoverState === 'restoring'
+                                  ? 'text-intent-focus'
+                                  : explorerTakeoverState === 'degraded'
+                                    ? 'text-intent-warning'
+                                    : 'text-text-ghost/55',
+                            )}>
+                              {formatTakeoverState(explorerTakeoverState)}
+                            </span>
                           </div>
                           <div className="text-[10px] text-text-ghost/60">
-                            {explorerIntegrationMode === 'global'
-                              ? 'Double-clic dossiers et Win+E passent par notre explorateur.'
-                              : 'Seuls les dossiers et lecteurs sont redirigés.'}
+                            {explorerTakeoverState === 'armed'
+                              ? 'Dossiers, lecteurs et Win+E passent par notre explorateur tant que l’app tourne.'
+                              : explorerTakeoverState === 'restoring'
+                                ? 'Restauration native en cours.'
+                                : explorerTakeoverState === 'degraded'
+                                  ? 'Takeover désactivé après un problème de restauration.'
+                                  : 'Le shell Windows natif est restauré.'}
                           </div>
                         </div>
 
@@ -380,33 +385,11 @@ function InfoLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ModeButton({
-  active,
-  disabled,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  children: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        'px-2 py-1 text-[10px] uppercase tracking-[0.18em] border transition-colors',
-        disabled
-          ? 'text-text-ghost/25 border-intent-primary/10 cursor-not-allowed'
-          : active
-            ? 'text-intent-primary border-intent-primary/60 bg-intent-primary/10'
-            : 'text-text-ghost/60 border-intent-primary/15 hover:border-intent-primary/40 hover:text-text-primary',
-      )}
-    >
-      {children}
-    </button>
-  );
+function formatTakeoverState(state: ExplorerTakeoverState) {
+  if (state === 'armed') return 'armé';
+  if (state === 'restoring') return 'restaure';
+  if (state === 'degraded') return 'dégradé';
+  return 'natif';
 }
 
 function formatBytes(bytes: number) {

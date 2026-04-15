@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useFileExplorer } from '@/hooks/useFileExplorer';
@@ -17,14 +17,25 @@ import { WindowFrame } from '@/components/desktop/WindowFrame';
 
 interface FileExplorerProps {
   initialPath?: string;
+  openSource?: 'shell' | 'widget' | 'internal';
+  openToken?: number;
   onClose: () => void;
   onMouseStateChange?: (inside: boolean) => void;
   surfaceOpacity?: number;
 }
 
-export function FileExplorer({ initialPath, onClose, onMouseStateChange, surfaceOpacity = 0.85 }: FileExplorerProps) {
+export function FileExplorer({
+  initialPath,
+  openSource = 'internal',
+  openToken = 0,
+  onClose,
+  onMouseStateChange,
+  surfaceOpacity = 0.85,
+}: FileExplorerProps) {
   const explorer = useFileExplorer(initialPath);
+  const navigateTo = explorer.navigateTo;
   const { play: playSound } = useSoundEffects();
+  const isFirstPathSyncRef = useRef(true);
   const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; file: FileEntity | null }>({
     visible: false, x: 0, y: 0, file: null,
   });
@@ -34,6 +45,15 @@ export function FileExplorer({ initialPath, onClose, onMouseStateChange, surface
   useEffect(() => {
     playSound('explorerOpen');
   }, [playSound]);
+
+  useEffect(() => {
+    if (!initialPath) return;
+    if (isFirstPathSyncRef.current) {
+      isFirstPathSyncRef.current = false;
+      return;
+    }
+    navigateTo(initialPath);
+  }, [initialPath, navigateTo, openToken]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -97,6 +117,7 @@ export function FileExplorer({ initialPath, onClose, onMouseStateChange, surface
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       className="pointer-events-auto fixed z-50"
+      data-open-source={openSource}
       style={isMinimized
         ? { left: '10%', bottom: 16, width: 360, height: 'auto' }
         : isMaximized

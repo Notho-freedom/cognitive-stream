@@ -4,6 +4,8 @@ const { spawn, exec, execFile, execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
+const { createExplorerService } = require('./explorer-service');
+const { createExplorerShellManager } = require('./explorer-shell');
 let systemInfoProvider = null;
 
 try {
@@ -45,12 +47,15 @@ let explorerSettingsPath = null;
 let shellLauncherScriptPath = null;
 let shellLauncherStatePath = null;
 let explorerCacheRootPath = null;
+let explorerShellBackupPath = null;
 let rendererExplorerChannelReady = false;
 const pendingExplorerOpenRequests = [];
 const systemIconCache = new Map();
 const extensionIconCache = new Map();
 const directoryWatchers = new Map();
 const layeredCacheMemory = new Map();
+let explorerService = null;
+let explorerShell = null;
 
 function getDefaultExplorerPath() {
   return 'virtual:this-pc';
@@ -284,7 +289,7 @@ function focusMainWindow() {
   mainWindow.focus();
 }
 
-function enqueueExplorerOpen(targetPath, source = 'folder') {
+function enqueueExplorerOpen(targetPath, source = 'shell') {
   const nextPath = normalizePathArgument(targetPath) || getDefaultExplorerPath();
   pendingExplorerOpenRequests.push({
     path: nextPath,
@@ -1012,22 +1017,58 @@ function bootstrapApp() {
   shellLauncherScriptPath = path.join(userDataPath, 'shell-launcher.ps1');
   shellLauncherStatePath = path.join(userDataPath, 'shell-launcher-state.json');
   explorerCacheRootPath = path.join(userDataPath, 'explorer-cache');
+  explorerShellBackupPath = path.join(userDataPath, 'explorer-shell-backup.json');
 
-  writeShellLauncherScript();
-  writeShellLauncherState();
-  ensureDirectory(explorerCacheRootPath);
+  explorerService = createExplorerService({
+    app,
+    systemInfoProvider,
+    runPowerShellAsync,
+  });
+  explorerService.setCacheRootPath(explorerCacheRootPath);
+
+  explorerShell = createExplorerShellManager({
+    app,
+    runPowerShell,
+    refreshWindowsShellAssociations,
+    shellOpenFlag: SHELL_OPEN_FLAG,
+    shellOpenHomeFlag: SHELL_OPEN_HOME_FLAG,
+  });
+  explorerShell.configurePaths({
+    nextSettingsPath: explorerSettingsPath,
+    nextLauncherScriptPath: shellLauncherScriptPath,
+    nextLauncherStatePath: shellLauncherStatePath,
+    nextBackupPath: explorerShellBackupPath,
+  });
+  explorerShell.writeLauncherScript();
+
+  let settings = explorerShell.loadSettings();
+  const recovery = explorerShell.recoverOnStartup();
+  if (!recovery.success) {
+    settings = explorerShell.saveSettings({
+      ...settings,
+      explorerTakeoverEnabled: false,
+    });
+  } else {
+    settings = explorerShell.saveSettings(settings);
+  }
 
   createWindow();
+  explorerShell.writeLauncherState();
 
-  try {
-    const storedSettings = readJsonFile(explorerSettingsPath, getExplorerSettingsDefaults());
-    let normalized = normalizeExplorerSettings(storedSettings);
-    const healResult = selfHealWindowsShellIntegration(normalized);
-    normalized = healResult.normalized;
+  if (settings.explorerTakeoverEnabled) {
+    const armResult = explorerShell.armTakeover();
+    if (!armResult.success) {
+      settings = explorerShell.saveSettings({
+        ...settings,
+        explorerTakeoverEnabled: false,
+      });
+    } else {
+      settings = explorerShell.saveSettings(settings);
+    }
+  }
 
-    saveExplorerSettings(normalized);
-  } catch (error) {
-    console.warn('[ShellIntegration] Failed to register Windows shell integration', error);
+  if (initialShellLaunch?.isShellRequest) {
+    enqueueExplorerOpen(initialShellLaunch.targetPath, 'shell');
   }
 }
 
@@ -1038,7 +1079,7 @@ if (hasSingleInstanceLock) {
     const shellLaunch = additionalData?.shellLaunch || parseShellLaunchArgs(argv);
 
     if (shellLaunch?.isShellRequest) {
-      enqueueExplorerOpen(shellLaunch.targetPath, shellLaunch.source || 'folder');
+      enqueueExplorerOpen(shellLaunch.targetPath, 'shell');
     }
 
     focusMainWindow();
@@ -1063,7 +1104,16 @@ if (hasSingleInstanceLock) {
       for (const watcherKey of Array.from(directoryWatchers.keys())) {
         stopDirectoryWatcher(watcherKey);
       }
-      clearShellLauncherState();
+      if (explorerShell) {
+        const restoreResult = explorerShell.restoreNativeShell('shutdown');
+        if (!restoreResult.success) {
+          explorerShell.saveSettings({
+            ...explorerShell.loadSettings(),
+            explorerTakeoverEnabled: false,
+          });
+        }
+        explorerShell.clearLauncherState();
+      }
     } catch (error) {
       console.warn('[ShellIntegration] Failed during quit cleanup', error);
     }
@@ -1125,27 +1175,62 @@ ipcMain.on('explorer:renderer-ready', () => {
 });
 
 ipcMain.handle('explorer:get-settings', async () => {
-  return loadExplorerSettings();
+  return explorerShell
+    ? explorerShell.loadSettings()
+    : {
+      explorerTakeoverEnabled: true,
+      explorerTakeoverState: 'native',
+    };
 });
 
 ipcMain.handle('explorer:set-settings', async (event, nextSettings = {}) => {
-  const normalized = saveExplorerSettings({
-    ...loadExplorerSettings(),
+  if (!explorerShell) {
+    return {
+      explorerTakeoverEnabled: true,
+      explorerTakeoverState: 'native',
+    };
+  }
+
+  let normalized = explorerShell.saveSettings({
+    ...explorerShell.loadSettings(),
     ...nextSettings,
   });
-  if (process.platform === 'win32') {
-    selfHealWindowsShellIntegration(normalized);
+
+  if (normalized.explorerTakeoverEnabled) {
+    explorerShell.writeLauncherState();
+    const armResult = explorerShell.armTakeover();
+    if (!armResult.success) {
+      normalized = explorerShell.saveSettings({
+        ...normalized,
+        explorerTakeoverEnabled: false,
+      });
+    } else {
+      normalized = explorerShell.saveSettings(normalized);
+    }
+    return normalized;
   }
+
+  const restoreResult = explorerShell.restoreNativeShell('toggle-off');
+  if (!restoreResult.success) {
+    normalized = explorerShell.saveSettings({
+      ...normalized,
+      explorerTakeoverEnabled: false,
+    });
+  } else {
+    normalized = explorerShell.saveSettings(normalized);
+  }
+
   return normalized;
 });
 
 ipcMain.handle('explorer:invalidate-dir-cache', async (event, dirPath) => {
-  const resolvedPath = resolveTilde(dirPath);
-  await invalidateLayeredCache(`explorer:dir:${hashCacheKey(resolvedPath)}`);
-  return {
-    success: true,
-    path: resolvedPath,
-  };
+  if (!explorerService) {
+    return {
+      success: false,
+      path: dirPath,
+    };
+  }
+  return explorerService.invalidateDirectoryCache(dirPath);
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -1284,86 +1369,19 @@ ipcMain.handle('fs:write', async (event, filePath, content) => {
 
 // List directory
 ipcMain.handle('fs:list', async (event, dirPath, options = {}) => {
-  const resolvedPath = dirPath.startsWith('~')
-    ? path.join(os.homedir(), dirPath.slice(1))
-    : dirPath;
-  const cacheKey = `explorer:dir:${hashCacheKey(resolvedPath)}`;
-
-  const freshCache = await readLayeredCache(cacheKey, DIR_CACHE_TTL_MS);
-  if (freshCache) {
-    return {
-      success: true,
-      path: resolvedPath,
-      items: freshCache.data,
-      status: freshCache.status,
-      source: freshCache.source,
-      lastUpdatedAt: freshCache.lastUpdatedAt,
-    };
-  }
-
-  try {
-    const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
-    const items = entries.map((entry) => {
-      const fullPath = path.join(resolvedPath, entry.name);
-      let stats = null;
-
-      try {
-        stats = fs.statSync(fullPath);
-      } catch (error) {
-        stats = null;
-      }
-
-      return {
-        name: entry.name,
-        path: fullPath,
-        isDirectory: entry.isDirectory(),
-        isFile: entry.isFile(),
-        size: stats?.size || 0,
-        modified: stats?.mtime || null,
-      };
-    });
-
-    const filtered = options.showHidden
-      ? items
-      : items.filter((item) => !item.name.startsWith('.'));
-    const sortedItems = filtered.sort((a, b) => {
-      if (a.isDirectory && !b.isDirectory) return -1;
-      if (!a.isDirectory && b.isDirectory) return 1;
-      return a.name.localeCompare(b.name);
-    });
-
-    const envelope = await writeLayeredCache(cacheKey, DIR_CACHE_TTL_MS, sortedItems);
-
-    return {
-      success: true,
-      path: resolvedPath,
-      items: sortedItems,
-      status: 'ready',
-      source: 'live',
-      lastUpdatedAt: envelope.savedAt,
-    };
-  } catch (error) {
-    const staleCache = await readAnyLayeredCache(cacheKey);
-    if (staleCache) {
-      return {
-        success: true,
-        path: resolvedPath,
-        items: staleCache.data,
-        status: 'stale',
-        source: staleCache.source,
-        lastUpdatedAt: staleCache.lastUpdatedAt,
-        error: error.message,
-      };
-    }
-
+  if (!explorerService) {
     return {
       success: false,
-      error: error.message,
       path: dirPath,
       items: [],
+      data: [],
       status: 'error',
+      requestId: options?.requestId,
+      error: 'Explorer service not available',
     };
   }
+
+  return explorerService.listDirectory(dirPath, options);
 });
 
 // Get system info
@@ -1493,9 +1511,16 @@ ipcMain.handle('system:metrics', async () => {
 
 // Get file icon as data URL
 ipcMain.handle('system:icon', async (event, filePath) => {
+  if (!explorerService) {
+    return {
+      success: false,
+      path: filePath,
+      error: 'Explorer service not available',
+    };
+  }
+
   try {
-    const image = await app.getFileIcon(filePath, { size: 'normal' });
-    return { success: true, path: filePath, dataUrl: image.toDataURL() };
+    return await explorerService.getFileIcon(filePath);
   } catch (error) {
     return {
       success: false,
@@ -1506,24 +1531,13 @@ ipcMain.handle('system:icon', async (event, filePath) => {
 });
 
 ipcMain.handle('system:icons', async (event, entries = []) => {
-  const safeEntries = Array.isArray(entries) ? entries.filter(Boolean) : [];
-  const icons = await mapLimit(safeEntries, 6, async (entry) => {
-    try {
-      return await loadSystemIcon(entry);
-    } catch (error) {
-      return {
-        success: false,
-        path: entry?.path || '',
-        key: entry?.key || entry?.path || '',
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
-  });
-
-  return {
-    success: true,
-    icons,
-  };
+  if (!explorerService) {
+    return {
+      success: false,
+      icons: [],
+    };
+  }
+  return explorerService.getFileIcons(entries);
 });
 
 ipcMain.handle('system:shortcut', async (event, filePath) => {
@@ -1531,26 +1545,10 @@ ipcMain.handle('system:shortcut', async (event, filePath) => {
 });
 
 ipcMain.handle('system:network-mounts', async () => {
-  if (process.platform !== 'win32') {
-    return { success: true, data: [], status: 'ready', source: 'live' };
+  if (!explorerService) {
+    return { success: false, data: [], status: 'error', source: 'live' };
   }
-
-  const script = `
-$drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.DisplayRoot -or $_.Root -like '\\\\*' } | ForEach-Object {
-  [PSCustomObject]@{
-    name = $_.Name
-    root = $_.Root
-    displayRoot = $_.DisplayRoot
-    used = $_.Used
-    free = $_.Free
-  }
-}
-$drives | ConvertTo-Json -Compress
-`;
-
-  return resolveCachedDataset('explorer:virtual:network:mounts', NETWORK_CACHE_TTL_MS, async () => (
-    parseJsonCommandOutput(await runPowerShellAsync(script, { timeout: POWERSHELL_TIMEOUT_MS }), [])
-  ));
+  return explorerService.getNetworkMounts();
 });
 
 ipcMain.handle('fs:watch-dir', async (event, dirPath) => {
@@ -1610,30 +1608,10 @@ ipcMain.handle('fs:unwatch-dir', async (event, dirPath) => {
 });
 
 ipcMain.handle('system:listening-services', async () => {
-  if (process.platform !== 'win32') {
-    return { success: true, data: [], status: 'ready', source: 'live' };
+  if (!explorerService) {
+    return { success: false, data: [], status: 'error', source: 'live' };
   }
-
-  const script = `
-$connections = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
-  Where-Object { $_.LocalAddress -in @('127.0.0.1', '0.0.0.0', '::1', '::') } |
-  Sort-Object LocalPort -Unique |
-  ForEach-Object {
-    $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
-    [PSCustomObject]@{
-      address = $_.LocalAddress
-      port = $_.LocalPort
-      pid = $_.OwningProcess
-      processName = if ($proc) { $proc.ProcessName } else { $null }
-      url = "http://localhost:$($_.LocalPort)"
-    }
-  }
-$connections | ConvertTo-Json -Compress
-`;
-
-  return resolveCachedDataset('explorer:virtual:network:services', NETWORK_CACHE_TTL_MS, async () => (
-    parseJsonCommandOutput(await runPowerShellAsync(script, { timeout: POWERSHELL_TIMEOUT_MS }), [])
-  ));
+  return explorerService.getListeningServices();
 });
 
 // Check if path exists
@@ -1765,21 +1743,10 @@ ipcMain.handle('fs:search', async (event, dirPath, query, options = {}) => {
 });
 
 ipcMain.handle('fs:drives', async () => {
-  return resolveCachedDataset('explorer:virtual:this-pc:drives', THIS_PC_CACHE_TTL_MS, async () => {
-    if (!systemInfoProvider) {
-      return [];
-    }
-
-    const disks = await systemInfoProvider.fsSize();
-    return disks.map((disk) => ({
-      mount: disk.mount,
-      total: disk.size,
-      used: disk.used,
-      usage: disk.use,
-      fsType: disk.type,
-      label: disk.fs,
-    }));
-  });
+  if (!explorerService) {
+    return { success: false, data: [], status: 'error', source: 'live' };
+  }
+  return explorerService.getDrives();
 });
 
 // Window controls
