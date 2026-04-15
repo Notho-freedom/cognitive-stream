@@ -11,6 +11,7 @@ import type {
   NetworkMountInfo,
   LocalServiceInfo,
   ExplorerSectionState,
+  ExplorerLoadStatus,
 } from '@/types/explorer.types';
 import {
   getFileExtension,
