@@ -1,445 +1,184 @@
-# Plan : Explorateur de Fichiers Complet + Fix Build
+# Objectif
 
-## Fix immédiat
+Reprendre proprement toute l’intégration Windows/Desktop qui est actuellement cassée, puis faire évoluer l’app Electron d’un simple HUD de widgets vers un vrai “bureau immersif” inspiré de la vue web actuelle et du mode Big Picture de Steam.
 
-**useVoiceInput.ts** : Remplacer `window.SpeechRecognition` par un cast via `(window as any).SpeechRecognition` pour supprimer les erreurs TS2551.
+## Ce que j’ai identifié dans le code
 
-## Explorateur de fichiers
+### 1) Le mode desktop actuel est incohérent
 
-### Architecture
+- `useElectronMode.ts` force `html.electron-mode body { background: transparent }`
+- `Index.tsx` bascule directement vers `DesktopWidgetShell`
+- `DesktopWidgetShell` affiche surtout des overlays flottants, pas un bureau structuré
+- `BridgeIndicator` est encore positionné en bas-droite alors que ton intention précédente était top-left
+- `electron/main.js` crée bien une fenêtre transparente, mais `alwaysOnTop` est à `false` alors que toute l’archi widgets repose sur une logique overlay/click-through
+- le résultat mélange “overlay transparent”, “pseudo desktop”, “fenêtre d’explorateur”, “shell Windows override”, donc rien n’est vraiment stabilisé
+
+### 2) Le fond du mode web n’est pas réellement repris
+
+Le web a une ambiance de fond claire dans `Index.tsx` + `index.css`, mais en Electron on annule ce fond au lieu de le réutiliser.  
+Donc le desktop Electron ne ressemble pas à la version web.
+
+### 3) L’intégration Windows actuelle est trop agressive
+
+Le code de `electron/main.js` essaie déjà de rediriger l’explorateur Windows via registre + hooks shell. Vu ton message “rien ne marche”, il faut repartir sur une intégration fiabilisée :
+
+- d’abord stabiliser le bureau et le bridge Electron
+- ensuite réactiver les intégrations shell seulement si elles sont robustes
+- éviter qu’un échec shell casse le desktop entier
+
+### 4) Les erreurs de build actuelles viennent surtout de `useFileExplorer.ts`
+
+Le hook suppose que `getDrives/getNetworkMounts/getListeningServices` retournent toujours un payload enrichi, mais `useSystemBridge.ts` peut renvoyer un fallback simplifié :
+
+- `status` devient un `string`
+- `source`, `lastUpdatedAt`, `error` n’existent pas toujours
+=> c’est la cause directe des erreurs TS2322 / TS2339
+
+### 5) Il faut aussi vérifier les fonctions backend
+
+Les erreurs signalées sur :
+
+- `supabase/functions/chat/ENHANCED_SYSTEM_PROMPT.ts`
+- `supabase/functions/chat/index.ts`
+- `supabase/functions/system-actions/index.ts`
+demandent une passe de correction dédiée pour assurer que le build/lint redevienne propre.
+
+## Direction de refonte
+
+## Phase A — Stabiliser l’intégration Electron/Desktop
+
+1. Revoir `electron/main.js`
+  - remettre une configuration de fenêtre cohérente pour un vrai mode desktop
+  - décider clairement entre :
+    - mode bureau plein écran non traditionnel
+    - ou mode widgets overlay
+  - conserver le frameless + transparence seulement là où c’est utile
+  - fiabiliser `setIgnoreMouseEvents` pour qu’il ne bloque pas l’interaction
+2. Revoir `useElectronMode.ts`
+  - ne plus rendre tout le body transparent par défaut
+  - séparer :
+    - `electron-desktop-mode`
+    - `electron-widget-overlay-mode`
+  - permettre au mode desktop de garder un vrai fond visuel
+3. Revoir `Index.tsx`
+  - faire du mode Electron un “desktop shell” complet
+  - garder le fond visuel du web comme base du bureau Electron
+  - injecter les widgets/apps par-dessus dans une composition propre
+
+## Phase B — Transformer le HUD en vrai bureau type Big Picture
+
+Créer une structure desktop plus lisible et immersive :
 
 ```text
-src/components/explorer/
-├── FileExplorer.tsx          # Composant principal (fenêtre complète)
-├── FileExplorerToolbar.tsx   # Barre d'outils (navigation, recherche, vue)
-├── FileExplorerSidebar.tsx   # Panneau latéral (accès rapides, disques, réseau)
-├── FileExplorerContent.tsx   # Zone principale (grille/liste de fichiers)
-├── FileExplorerBreadcrumb.tsx # Fil d'Ariane du chemin actuel
-├── FileExplorerStatusBar.tsx # Barre de statut (nb éléments, taille, espace disque)
-├── FileExplorerContextMenu.tsx # Menu contextuel (clic droit)
-├── FileExplorerPreview.tsx   # Panneau de prévisualisation (fichiers texte/image)
-└── useFileExplorer.ts        # Hook principal (état, navigation, opérations)
+DesktopShell
+├── DesktopBackgroundLayer     ← reprend exactement l’ambiance visuelle web
+├── DesktopTopBar / status rail
+├── DesktopDock / launcher
+├── DesktopCommandBar          ← centre bas
+├── DesktopWorkspace           ← zone principale
+├── DesktopWidgetsLayer        ← cartes flottantes / bridge / status
+└── DesktopWindowsLayer        ← explorateur, apps, panneaux
 ```
 
-### Fonctionnalités complètes
+### UX visée
 
-**Navigation :**
+- fond identique à la vue web actuelle, mais étendu à un vrai bureau
+- composition plus “salon / interface immersive” à la Steam Big Picture
+- éléments grands, lisibles, espacés, non “chat”
+- bureau principal avant les widgets
+- widgets comme modules contextuels, pas comme structure principale
 
-- Fil d'Ariane cliquable par segment
-- Boutons Précédent/Suivant/Parent (historique de navigation)
-- Barre d'adresse éditable (saisie directe d'un chemin)
-- Double-clic pour entrer dans un dossier ou ouvrir un fichier
+## Phase C — Corriger toute l’intégration Windows actuelle
 
-**Panneau latéral (pages clés) :**
+1. Assainir la logique shell/explorer dans `electron/main.js`
+  - rendre la redirection shell optionnelle et résiliente
+  - éviter que l’échec du registre ou du shell casse l’app
+  - isoler les fonctions d’intégration Windows dans un bloc plus sûr
+2. Vérifier `preload.js` + `useSystemBridge.ts`
+  - aligner exactement les méthodes exposées
+  - normaliser tous les retours du bridge
+  - garantir des payloads typés stables côté React
+3. Harmoniser `DesktopIconZone`, `FileExplorer`, `WindowFrame`
+  - les intégrer dans une logique “apps du bureau”
+  - éviter l’effet collage de composants indépendants
 
-- **Accès rapides** : Bureau, Documents, Téléchargements, Images, Musique, Vidéos
-- **Disques système** : Détection via `system:metrics` (C: D: etc. ou /dev/sdX sur Linux) avec barres d'espace utilisé
-- **Réseau** : Interfaces réseau détectées (info only, via metrics.network)
-- **Ce PC** : Nom machine, OS, architecture
+## Phase D — Corriger le build TypeScript
 
-**Barre d'outils :**
+### D1) `useSystemBridge.ts`
 
-- Boutons navigation (back/forward/up/home)
-- Toggle vue grille / vue liste / vue détails
-- Recherche dans le dossier courant (grep via bridge)
-- Toggle fichiers cachés
-- Bouton nouveau dossier / nouveau fichier
-- Bouton actualiser
+Uniformiser les fallbacks de :
 
-**Zone de contenu :**
+- `getDrives`
+- `getNetworkMounts`
+- `getListeningServices`
 
-- 3 modes d'affichage : icônes (grille), liste compacte, détails (colonnes triables : nom, taille, date, type)
-- Tri par nom/taille/date (asc/desc)
-- Sélection multiple (Ctrl+clic, Shift+clic)
-- Icônes natives via `getFileIcon` du bridge
+Ils devront retourner un objet strictement compatible avec `CacheBackedPayload<T>` :
 
-**Menu contextuel (clic droit) :**
+- `success`
+- `data`
+- `status`
+- `source`
+- `lastUpdatedAt`
+- `error`
 
-- Ouvrir / Ouvrir avec
-- Copier le chemin
-- Renommer
-- Supprimer (avec confirmation)
-- Nouveau dossier / Nouveau fichier
-- Propriétés (taille, dates, permissions)
+### D2) `useFileExplorer.ts`
 
-**Barre de statut :**
+- typer explicitement les snapshots enrichis
+- éviter l’accès direct à des propriétés qui n’existent pas sur les fallbacks actuels
+- s’assurer que `ExplorerLoadStatus` reçoit uniquement les valeurs prévues
 
-- Nombre d'éléments dans le dossier courant
-- Taille totale sélection
-- Espace disque du volume courant
+## Phase E — Corriger les erreurs dans les fonctions backend
 
-**Prévisualisation :**
+Faire une passe dédiée sur :
 
-- Panneau droit togglable
-- Affiche le contenu des fichiers texte (< 100KB)
-- Affiche les métadonnées pour les autres
+- `supabase/functions/chat/index.ts`
+- `supabase/functions/chat/ENHANCED_SYSTEM_PROMPT.ts`
+- `supabase/functions/system-actions/index.ts`
 
-### Intégration desktop
+Objectif :
 
-Le `FileExplorer` sera accessible :
-
-1. Via la `DesktopCommandBar` (commande "explorateur" ou "ouvrir dossier X")
-2. Via double-clic sur un dossier dans `DesktopIconZone`
-3. Rendu comme une `FloatingResponseCard` de type spécial "explorer" (plus grande, redimensionnable)
-
-Un nouveau hook `useFileExplorer.ts` gèrera tout l'état (chemin courant, historique, sélection, opérations CRUD) en utilisant `useSystemBridge`.
-
-### Ajouts IPC Electron
-
-Ajouter dans `electron/main.js` + `preload.js` :
-
-- `fs:rename` — renommer fichier/dossier
-- `fs:mkdir` — créer un dossier
-- `fs:stat` — obtenir les stats détaillées (permissions, dates creation/access/modif)
-- `fs:drives` — lister les disques montés (Windows: `wmic logicaldisk`, Linux: `df -h`, macOS: `diskutil list`)
-- `fs:copy` — copier fichier/dossier
-
-### Style
-
-Même design HUD/glassmorphic que le reste : `FuturisticFrame`, fond semi-transparent, accents cyan, animations framer-motion subtiles.
+- corriger les éventuels problèmes de typage/lint/format
+- s’assurer que rien dans ces fonctions ne bloque le build global
 
 ## Fichiers impactés
 
-- `src/hooks/useVoiceInput.ts` — fix TS build
-- `electron/main.js` — nouveaux IPC handlers (rename, mkdir, stat, drives, copy)
-- `electron/preload.js` — exposer les nouvelles API
-- `src/hooks/useSystemBridge.ts` — ajouter les nouvelles méthodes
-- `src/components/explorer/*` — tous les composants explorateur (nouveaux)
-- `src/hooks/useFileExplorer.ts` — hook état explorateur (nouveau)
-- `src/components/desktop/DesktopWidgetShell.tsx` — intégrer l'explorateur
-- `src/components/desktop/DesktopIconZone.tsx` — ouvrir explorateur sur double-clic dossier  
-  
-  
-  
-  
-Ton plan est déjà solide — là on va le transformer en **système production-grade**, modulaire, scalable, et prêt pour évoluer vers un OS-like sérieux (SkyOS vibes 👀).
-  Je vais te restructurer ça comme une **archi + roadmap + contracts + edge cases**, façon dev senior qui prépare un truc qui peut tenir 2 ans sans refacto majeure.
-  ---
-  # 🧠 1. Vision (niveau système)
-  Ton explorateur = pas un composant UI  
-  👉 c’est un **module système** avec 3 couches :
-  ```text
-  UI Layer (React)
-  ↓
-  State Layer (hooks + store)
-  ↓
-  System Layer (Electron IPC + FS)
+- `electron/main.js`
+- `electron/preload.js`
+- `src/hooks/useElectronMode.ts`
+- `src/pages/Index.tsx`
+- `src/components/desktop/DesktopWidgetShell.tsx`
+- `src/components/desktop/BridgeIndicator.tsx`
+- `src/components/desktop/DesktopCommandBar.tsx`
+- `src/components/desktop/DesktopSidePanel.tsx`
+- `src/components/desktop/DesktopIconZone.tsx`
+- `src/components/desktop/WindowFrame.tsx`
+- `src/hooks/useSystemBridge.ts`
+- `src/hooks/useFileExplorer.ts`
+- `src/index.css`
+- `supabase/functions/chat/index.ts`
+- `supabase/functions/chat/ENHANCED_SYSTEM_PROMPT.ts`
+- `supabase/functions/system-actions/index.ts`
 
-  ```
-  Objectif :
-  - découplage total UI / logique
-  - testabilité
-  - extensibilité (plugins, cloud, remote FS plus tard)
-  ---
-  # 🧩 2. Architecture améliorée
-  ## 📁 Structure complète
-  ```text
-  src/
-  ├── components/explorer/
-  │   ├── FileExplorer.tsx
-  │   ├── layout/
-  │   │   ├── ExplorerLayout.tsx
-  │   │   ├── ExplorerSplitView.tsx   # resize panels
-  │   │   └── ExplorerPanel.tsx
-  │   │
-  │   ├── toolbar/
-  │   │   ├── FileExplorerToolbar.tsx
-  │   │   ├── AddressBar.tsx
-  │   │   └── SearchBar.tsx
-  │   │
-  │   ├── sidebar/
-  │   │   ├── FileExplorerSidebar.tsx
-  │   │   ├── SidebarSection.tsx
-  │   │   └── SidebarItem.tsx
-  │   │
-  │   ├── content/
-  │   │   ├── FileExplorerContent.tsx
-  │   │   ├── FileGridView.tsx
-  │   │   ├── FileListView.tsx
-  │   │   ├── FileDetailsView.tsx
-  │   │   └── FileItem.tsx
-  │   │
-  │   ├── preview/
-  │   │   ├── FileExplorerPreview.tsx
-  │   │   ├── TextPreview.tsx
-  │   │   ├── ImagePreview.tsx
-  │   │   └── UnsupportedPreview.tsx
-  │   │
-  │   ├── context/
-  │   │   ├── FileExplorerContextMenu.tsx
-  │   │   └── contextActions.ts
-  │   │
-  │   ├── status/
-  │   │   └── FileExplorerStatusBar.tsx
-  │   │
-  │   └── breadcrumb/
-  │       └── FileExplorerBreadcrumb.tsx
-  │
-  ├── hooks/
-  │   ├── useFileExplorer.ts
-  │   ├── useFileOperations.ts
-  │   ├── useFileSelection.ts
-  │   ├── useNavigationHistory.ts
-  │   └── useDirectoryWatcher.ts   # 🔥 temps réel
-  │
-  ├── services/
-  │   ├── fileSystem.service.ts
-  │   ├── fileCache.service.ts
-  │   ├── search.service.ts
-  │   └── icon.service.ts
-  │
-  ├── types/
-  │   └── explorer.types.ts
+## Résultat attendu
 
-  ```
-  ---
-  # ⚙️ 3. Modélisation des données (ULTRA important)
-  ## 📦 File Entity
-  ```ts
-  type FileEntity = {
-    id: string
-    name: string
-    path: string
-    type: 'file' | 'directory'
-    size: number
-    extension?: string
-    mimeType?: string
-    createdAt: number
-    updatedAt: number
-    accessedAt?: number
-    isHidden: boolean
-    isReadonly: boolean
-    permissions?: string
-    icon?: string
-  }
+Après implémentation :
 
-  ```
-  ---
-  ## 📂 Explorer State
-  ```ts
-  type ExplorerState = {
-    currentPath: string
-    files: FileEntity[]
-    selected: string[]
-    viewMode: 'grid' | 'list' | 'details'
-    sort: {
-      field: 'name' | 'size' | 'date'
-      order: 'asc' | 'desc'
-    }
-    history: {
-      back: string[]
-      forward: string[]
-    }
-    showHidden: boolean
-    previewFile?: FileEntity
-  }
-
-  ```
-  ---
-  # 🔌 4. IPC Electron (version PRO)
-  Tu avais la base — voici la version robuste :
-  ## 📡 FS Core
-  ```text
-  fs:readDir
-  fs:readFile
-  fs:writeFile
-  fs:delete
-  fs:rename
-  fs:mkdir
-  fs:copy
-  fs:move   ← 🔥 important
-  fs:stat
-  fs:exists
-
-  ```
-  ---
-  ## 💽 System
-  ```text
-  fs:drives
-  system:metrics
-  system:info
-
-  ```
-  ---
-  ## 🔍 Search (optimisé)
-  ```text
-  fs:search
-
-  ```
-  👉 backend :
-  - Windows → `where /r`
-  - Linux/mac → `find` ou `ripgrep` (🔥 très rapide)
-  ---
-  ## 👀 Watcher (temps réel 🔥)
-  ```text
-  fs:watch
-  fs:unwatch
-
-  ```
-  👉 basé sur :
-  - `chokidar` (cross-platform)
-  ---
-  # 🧠 5. Hooks spécialisés (clean architecture)
-  ## 🧭 useNavigationHistory
-  - back()
-  - forward()
-  - push(path)
-  ---
-  ## 📂 useFileSelection
-  - select(fileId)
-  - multiSelect()
-  - rangeSelect()
-  - clear()
-  ---
-  ## 🛠 useFileOperations
-  - rename()
-  - delete()
-  - copy()
-  - move()
-  - createFile()
-  - createFolder()
-  ---
-  ## 👁 useDirectoryWatcher
-  - sync auto quand fichiers changent
-  - évite bouton refresh inutile
-  ---
-  # ⚡ 6. Performance (clé pour UX fluide)
-  ## 🚀 Obligatoire
-  - Virtualisation (🔥 énorme gain)
-    - `react-virtual`
-  - Debounce search (300ms)
-  - Cache fichiers
-  ---
-  ## 🧠 Cache Strategy
-  ```text
-  LRU Cache (par path)
-  TTL: 5-10 secondes
-
-  ```
-  ---
-  ## 📦 Lazy loading
-  - preview uniquement quand sélection
-  - icônes chargées async
-  ---
-  # 🎯 7. UX avancée (ce qui fait la diff)
-  ## 🖱 Interactions
-  - Drag & Drop (move files)
-  - Rename inline (F2)
-  - Delete → confirmation + undo (🔥)
-  - Double-click intelligent
-  ---
-  ## ⌨️ Shortcuts
-  ```text
-  Ctrl + C → copy
-  Ctrl + V → paste
-  Ctrl + X → cut
-  Del → delete
-  F2 → rename
-  Ctrl + A → select all
-
-  ```
-  ---
-  ## 🧠 Smart features
-  - ouverture par défaut selon extension
-  - historique persistant (localStorage)
-  - favoris personnalisés
-  ---
-  # 🧩 8. Preview Engine (extensible)
-  ```ts
-  const previewRegistry = {
-    'text/plain': TextPreview,
-    'image/png': ImagePreview,
-  }
-
-  ```
-  👉 futur :
-  - PDF
-  - vidéo
-  - audio
-  ---
-  # 🔐 9. Sécurité (souvent oublié ⚠️)
-  - sandbox paths (no access root critique)
-  - validation côté main process
-  - sanitize paths
-  - limiter taille fichiers preview (<100KB ok)
-  ---
-  # 🎨 10. UI / Design System
-  - glassmorphism OK mais :  
-  👉 ajoute :
-  - états hover/active ultra clairs
-  - skeleton loaders
-  - transitions ultra fluides (framer-motion)
-  ---
-  # 🧪 11. Tests (niveau pro)
-  ## Unit
-  - hooks
-  - services
-  ## Integration
-  - navigation
-  - file ops
-  ## E2E
-  - ouvrir dossier
-  - supprimer fichier
-  ---
-  # 🚀 12. Roadmap réaliste (par étapes)
-  ## Phase 1 (MVP propre)
-  - navigation
-  - affichage fichiers
-  - sélection
-  - open dossier
-  ---
-  ## Phase 2
-  - CRUD (rename, delete, create)
-  - context menu
-  - preview simple
-  ---
-  ## Phase 3
-  - search
-  - tri
-  - vues multiples
-  ---
-  ## Phase 4
-  - watcher temps réel
-  - drag & drop
-  ---
-  ## Phase 5 (🔥 avancé)
-  - multi-tabs
-  - cloud (Google Drive, etc.)
-  - remote FS (SSH)
-  ---
-  # 🧠 13. Intégration SkyOS (vision future)
-  Ton explorer devient :
-  ```text
-  FileSystem API central
-  → utilisé par toutes les apps
-
-  ```
-  👉 ex :
-  - Elite → envoie fichiers
-  - générateur doc → lit repos
-  - desktop → drag files
-  ---
-  # ⚡ 14. Fix immédiat (TS)
-  Ton fix est bon mais version propre :
-  ```ts
-  const SpeechRecognition =
-    (window as any).SpeechRecognition ||
-    (window as any).webkitSpeechRecognition
-
-  ```
-  ---
-  # 💡 15. Upgrade ultime (vision futuriste)
-  👉 transforme ton explorer en :
-  ## 🧠 "Smart Explorer"
-  - recherche IA ("mes fichiers récents importants")
-  - tags automatiques
-  - preview enrichie
-  - résumé fichiers texte
-  ---
-  # 🏁 Conclusion
-  Ton plan initial = très bon  
-  👉 mais maintenant tu as :
-  - une **archi modulaire**
-  - une **logique scalable**
-  - une **vision OS-level**
-  - une **roadmap claire**  
+1. Le lancement Electron ouvre un vrai bureau immersif, pas une fenêtre classique ni un overlay cassé
+2. Le fond reprend l’ambiance de la vue web actuelle
+3. Le layout desktop rappelle Big Picture : grand, propre, spatial, lisible
+4. Le bridge Windows/Desktop refonctionne proprement
+5. L’explorateur et les apps du bureau s’intègrent comme de vraies surfaces système
+6. Les erreurs TypeScript actuelles disparaissent
+7. Les erreurs côté fonctions backend sont corrigées aussi
+8. developper un system structurer pour gerer les composants et les cogWindows de notre app
+9. faire tous les tests
+10. je veux une orchestration parfaite
+11. supprime le system de metric des perfs system
+12. je ne veux plus de transparences sur les widgetsqui ont le focus
+13. l'explorateur de fichier doit avoir exactement le meme bg que la vue web actuelle
+14. notre explorateur doit pouvoir remplacer facilement l'explorateur windows natif et repondre a tous ses evenements aussi
+15. je ne veux plus que le CoInput soit visible au lancement et devra repondre a la com crtl+k
+16. et je veux un DnD sur tous les composants appropriés 
+17. pour finir optimise profondement les performances, exploite profondement les services de la .env
+18. prend tout ton temps pour tester et finaliser le projet
+19. n'hesite pas a creer de nouveaux composants
