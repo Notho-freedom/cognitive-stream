@@ -11,6 +11,7 @@ import type {
   NetworkMountInfo,
   LocalServiceInfo,
   ExplorerSectionState,
+  ExplorerLoadStatus,
 } from '@/types/explorer.types';
 import {
   getFileExtension,
@@ -204,10 +205,10 @@ export function useFileExplorer(initialPath?: string) {
     const driveItems = driveSnapshot.success ? driveSnapshot.data : [];
 
     setDriveState({
-      status: driveSnapshot.status,
-      source: driveSnapshot.source,
-      lastUpdatedAt: driveSnapshot.lastUpdatedAt,
-      error: driveSnapshot.error,
+      status: (driveSnapshot.status ?? 'error') as ExplorerLoadStatus,
+      source: (driveSnapshot as any).source,
+      lastUpdatedAt: (driveSnapshot as any).lastUpdatedAt,
+      error: (driveSnapshot as any).error,
     });
     setDrives(driveItems.map((disk) => ({
       mount: disk.mount,
@@ -227,16 +228,16 @@ export function useFileExplorer(initialPath?: string) {
     ]);
 
     setNetworkMountState({
-      status: mountResult.status,
-      source: mountResult.source,
-      lastUpdatedAt: mountResult.lastUpdatedAt,
-      error: mountResult.error,
+      status: (mountResult.status ?? 'error') as ExplorerLoadStatus,
+      source: (mountResult as any).source,
+      lastUpdatedAt: (mountResult as any).lastUpdatedAt,
+      error: (mountResult as any).error,
     });
     setLocalServiceState({
-      status: serviceResult.status,
-      source: serviceResult.source,
-      lastUpdatedAt: serviceResult.lastUpdatedAt,
-      error: serviceResult.error,
+      status: (serviceResult.status ?? 'error') as ExplorerLoadStatus,
+      source: (serviceResult as any).source,
+      lastUpdatedAt: (serviceResult as any).lastUpdatedAt,
+      error: (serviceResult as any).error,
     });
     setNetworkMounts(mountResult.data || []);
     setLocalServices(serviceResult.data || []);

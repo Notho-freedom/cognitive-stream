@@ -9,11 +9,10 @@ interface BridgeIndicatorProps {
   autonomyLimit: number;
   activeTasks: number;
   onMouseStateChange?: (inside: boolean) => void;
-  surfaceOpacity?: number;
 }
 
 /**
- * BridgeIndicator — Indicateur compact coin inférieur droit
+ * BridgeIndicator — Indicateur compact coin supérieur gauche
  * Affiche le statut du pont système et le mode du cerveau
  */
 export function BridgeIndicator({
@@ -23,7 +22,6 @@ export function BridgeIndicator({
   autonomyLimit,
   activeTasks,
   onMouseStateChange,
-  surfaceOpacity,
 }: BridgeIndicatorProps) {
   const { isAvailable, systemInfo } = useSystemBridge();
 
@@ -31,19 +29,16 @@ export function BridgeIndicator({
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: 20 }}
+      initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-      className="fixed bottom-4 right-4 z-30"
+      className="fixed top-4 left-4 z-30"
       onMouseEnter={() => onMouseStateChange?.(true)}
       onMouseLeave={() => onMouseStateChange?.(false)}
     >
       <div
-        className="flex items-center gap-3 px-3 py-2"
+        className="flex items-center gap-3 px-3 py-2 bg-surface-deep/90 backdrop-blur-xl border border-intent-primary/15"
         style={{
-          background: `hsl(220 22% 8% / ${Math.min(0.95, Math.max(0.4, surfaceOpacity ?? 0.7))})`,
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
           clipPath: 'polygon(8px 0%, calc(100% - 4px) 0%, 100% 4px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 4px 100%, 0% calc(100% - 4px), 0% 8px)',
         }}
       >
@@ -110,10 +105,6 @@ export function BridgeIndicator({
       <div
         className="absolute top-0 left-[12px] right-[8px] h-px"
         style={{ background: 'linear-gradient(90deg, hsl(187 85% 53% / 0.6), hsl(187 85% 35% / 0.2))' }}
-      />
-      <div
-        className="absolute bottom-0 left-[8px] right-[12px] h-px"
-        style={{ background: 'linear-gradient(90deg, hsl(187 85% 35% / 0.2), hsl(187 85% 53% / 0.3))' }}
       />
     </motion.div>
   );
