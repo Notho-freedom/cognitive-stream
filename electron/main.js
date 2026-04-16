@@ -906,7 +906,7 @@ function clearManagedShellOverrides() {
     const managedByUs = shellInfo?.owner === EXPLORER_SHELL_OWNER;
     const isLegacy = isLegacyShellOverride(shellInfo);
 
-    if (managedByUs || (includeLegacy && isLegacy)) {
+    if (managedByUs || isLegacy) {
       removeRegistryKey(key);
     }
 
@@ -977,24 +977,20 @@ function createWindow() {
     x: 0,
     y: 0,
     frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
+    transparent: false,
+    backgroundColor: '#060a14',
+    hasShadow: true,
     alwaysOnTop: false,
-    skipTaskbar: true,
-    resizable: false,
-    movable: false,
+    skipTaskbar: false,
+    resizable: true,
+    movable: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     },
     titleBarStyle: 'hidden',
-    vibrancy: 'ultra-dark',
   });
-
-  // Enable click-through on transparent areas
-  mainWindow.setIgnoreMouseEvents(true, { forward: true });
 
   // Load the app
   if (isDev) {
