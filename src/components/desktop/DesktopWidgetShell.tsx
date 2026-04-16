@@ -55,6 +55,8 @@ function DesktopWidgetShellInner() {
   const [commandBarVisible, setCommandBarVisible] = useState(false);
   const [explorerIntegrationEnabled, setExplorerIntegrationEnabled] = useState(true);
   const [explorerIntegrationMode, setExplorerIntegrationMode] = useState<'global' | 'folders-only'>('global');
+  const [explorerTakeoverEnabled, setExplorerTakeoverEnabled] = useState(false);
+  const [explorerTakeoverState, setExplorerTakeoverState] = useState<'native' | 'armed' | 'restoring' | 'degraded'>('native');
   const {
     isAvailable: isElectronBridgeAvailable,
     notifyExplorerReady,
