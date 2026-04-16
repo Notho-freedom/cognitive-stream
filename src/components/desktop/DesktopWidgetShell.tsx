@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
+import { useMemo, useEffect, useRef, useCallback, useState, memo } from 'react';
 import { AnimatePresence, MotionConfig } from 'framer-motion';
 import {
   NotificationProvider,
@@ -13,13 +13,15 @@ import { useSystemBridge } from '@/hooks/useSystemBridge';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useDesktopIcons } from '@/hooks/useDesktopIcons';
 import { usePersistentState } from '@/hooks/usePersistentState';
+import { useCogWindowManager } from '@/hooks/useCogWindowManager';
 import { AutonomyConfirmDialog } from '@/components/cognitive/AutonomyConfirmDialog';
 import { AutonomyQuestionDialog } from '@/components/cognitive/AutonomyQuestionDialog';
-import { BridgeIndicator } from './BridgeIndicator';
+import { DesktopTopBar } from './DesktopTopBar';
 import { DesktopCommandBar } from './DesktopCommandBar';
 import { FloatingResponseCard } from './FloatingResponseCard';
 import { DesktopSidePanel } from './DesktopSidePanel';
 import { DesktopIconZone } from './DesktopIconZone';
+import { CogWindow } from './CogWindow';
 import { FileExplorer } from '@/components/explorer/FileExplorer';
 
 const brainModeLabels: Record<string, string> = {
@@ -34,27 +36,24 @@ const brainModeLabels: Record<string, string> = {
 
 /**
  * DesktopWidgetShell — Bureau immersif type Big Picture
- * Même fond que la vue web, BridgeIndicator top-left, CommandBar Ctrl+K
+ * Même fond que la vue web, TopBar, CommandBar Ctrl+K, CogWindow system
  */
 function DesktopWidgetShellInner() {
   const { push: notifyPush } = useNotifications();
   const brain = useCognitiveBrain(notifyPush);
   const { play: playSound, setEnabled: setSoundEnabled, isEnabled: isSoundEnabled } = useSoundEffects();
   const floatingCards = useFloatingCards();
+  const cogWindows = useCogWindowManager();
   const activeSchemaCardIdRef = useRef<string | null>(null);
   const [panelCollapsed, setPanelCollapsed] = useState(true);
-  const [explorerOpen, setExplorerOpen] = useState(false);
   const [explorerPath, setExplorerPath] = useState<string | undefined>();
   const [explorerOpenSource, setExplorerOpenSource] = useState<'shell' | 'widget' | 'internal'>('internal');
   const [explorerOpenToken, setExplorerOpenToken] = useState(0);
-  const [panelTab, setPanelTab] = useState<'system' | 'settings'>('settings');
   const [surfaceOpacity, setSurfaceOpacity] = useState(0.85);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [soundsEnabled, setSoundsEnabled] = useState(isSoundEnabled());
   const [showDesktopApps, setShowDesktopApps] = usePersistentState('desktop:show-apps-widget', true);
   const [commandBarVisible, setCommandBarVisible] = useState(false);
-  const [explorerIntegrationEnabled, setExplorerIntegrationEnabled] = useState(true);
-  const [explorerIntegrationMode, setExplorerIntegrationMode] = useState<'global' | 'folders-only'>('global');
   const [explorerTakeoverEnabled, setExplorerTakeoverEnabled] = useState(false);
   const [explorerTakeoverState, setExplorerTakeoverState] = useState<'native' | 'armed' | 'restoring' | 'degraded'>('native');
   const {
@@ -68,33 +67,14 @@ function DesktopWidgetShellInner() {
   const desktopIcons = useDesktopIcons(showDesktopApps);
 
   const {
-    messages,
-    schema,
-    thought,
-    isLoading,
-    isStreaming,
-    error,
-    pendingAction,
-    pendingConfirmation,
-    pendingQuestion,
-    aiProvider,
-    aiModel,
-    isLocalFallback,
-    mentalState,
-    activeTasks,
-    isAutonomousMode,
-    autonomyActionCount,
-    autonomyLimit,
-    sendMessage,
-    handleAction,
-    confirmAction,
-    respondToConfirmation,
-    respondToQuestion,
-    reset,
+    messages, schema, thought, isLoading, isStreaming, error,
+    pendingAction, pendingConfirmation, pendingQuestion,
+    aiProvider, aiModel, isLocalFallback, mentalState,
+    activeTasks, isAutonomousMode, autonomyActionCount, autonomyLimit,
+    sendMessage, handleAction, confirmAction, respondToConfirmation, respondToQuestion, reset,
   } = brain;
 
   const tts = useCognitiveEdgeTTS({ autoPlay: true, maxLength: 500, skipIfSpeaking: true });
-
   const voiceInput = useVoiceInput({
     onFinalTranscript: (text) => {
       if (!text.trim()) return;
@@ -106,6 +86,11 @@ function DesktopWidgetShellInner() {
     if (!mentalState) return null;
     return brainModeLabels[mentalState.mode] || mentalState.mode.toUpperCase();
   }, [mentalState]);
+
+  // Explorer open as CogWindow
+  const explorerWindowId = useMemo(() => {
+    return cogWindows.windows.find(w => w.type === 'explorer')?.id ?? null;
+  }, [cogWindows.windows]);
 
   const prevSchemaRef = useRef(schema);
   const prevErrorRef = useRef(error);
@@ -130,11 +115,7 @@ function DesktopWidgetShellInner() {
     if (schema && schema !== prevSchemaRef.current) {
       if (activeSchemaCardIdRef.current) {
         floatingCards.updateCard(activeSchemaCardIdRef.current, {
-          type: 'response',
-          schema,
-          text: undefined,
-          error: undefined,
-          timestamp: Date.now(),
+          type: 'response', schema, text: undefined, error: undefined, timestamp: Date.now(),
         });
       } else {
         playSound('cardAppear');
@@ -162,15 +143,11 @@ function DesktopWidgetShellInner() {
   }, [thought, notifyPush]);
 
   useEffect(() => {
-    if (isLoading && !prevIsLoadingRef.current) {
-      playSound('thinking');
-    }
+    if (isLoading && !prevIsLoadingRef.current) playSound('thinking');
     prevIsLoadingRef.current = isLoading;
   }, [isLoading, playSound]);
 
-  useEffect(() => {
-    setSoundEnabled(soundsEnabled);
-  }, [soundsEnabled, setSoundEnabled]);
+  useEffect(() => { setSoundEnabled(soundsEnabled); }, [soundsEnabled, setSoundEnabled]);
 
   useEffect(() => {
     if (!tts.isEnabled || !schema || isStreaming) return;
@@ -196,9 +173,7 @@ function DesktopWidgetShellInner() {
 
   const handleDismiss = useCallback((id: string) => {
     playSound('cardDismiss');
-    if (activeSchemaCardIdRef.current === id) {
-      activeSchemaCardIdRef.current = null;
-    }
+    if (activeSchemaCardIdRef.current === id) activeSchemaCardIdRef.current = null;
     floatingCards.dismissCard(id);
   }, [playSound, floatingCards]);
 
@@ -206,34 +181,24 @@ function DesktopWidgetShellInner() {
     floatingCards.updateCard(id, { position });
   }, [floatingCards]);
 
-  const handleMouseState = (inside: boolean) => {
-    const bridge = (window as Window & {
-      cognitiveBridge?: { widgetMouseEnter?: () => void; widgetMouseLeave?: () => void };
-    }).cognitiveBridge;
-    if (!bridge) return;
-    if (inside) bridge.widgetMouseEnter?.();
-    else bridge.widgetMouseLeave?.();
-  };
-
   const openExplorer = useCallback((path?: string, source: 'shell' | 'widget' | 'internal' = 'internal') => {
     setExplorerPath(path);
     setExplorerOpenSource(source);
-    setExplorerOpenToken((previous) => previous + 1);
-    setExplorerOpen(true);
-  }, []);
+    setExplorerOpenToken((prev) => prev + 1);
+    cogWindows.open('explorer', 'EXPLORATEUR', {
+      size: { width: Math.min(1200, window.innerWidth * 0.8), height: Math.min(700, window.innerHeight * 0.8) },
+    });
+  }, [cogWindows]);
 
   useEffect(() => {
     if (!isElectronBridgeAvailable) return;
-
     getExplorerSettings().then((settings) => {
       setExplorerTakeoverEnabled(settings.explorerTakeoverEnabled);
       setExplorerTakeoverState(settings.explorerTakeoverState);
     });
-
     const unsubscribe = onExplorerOpenRequest(({ path, source }) => {
       openExplorer(path, source === 'shell' ? 'shell' : 'internal');
     });
-
     notifyExplorerReady();
     return unsubscribe;
   }, [getExplorerSettings, isElectronBridgeAvailable, notifyExplorerReady, onExplorerOpenRequest, openExplorer]);
@@ -269,20 +234,19 @@ function DesktopWidgetShellInner() {
       />
 
       {/* Notifications */}
-      <NotificationQueue position="top-right" onMouseStateChange={handleMouseState} />
+      <NotificationQueue position="top-right" />
 
-      {/* Bridge Indicator — top-left */}
-      <BridgeIndicator
+      {/* Top Bar — replaces floating BridgeIndicator */}
+      <DesktopTopBar
         brainMode={brainMode}
         isAutonomous={isAutonomousMode}
         autonomyCount={autonomyActionCount}
         autonomyLimit={autonomyLimit}
         activeTasks={activeTasks.length}
-        onMouseStateChange={handleMouseState}
       />
 
       {/* Floating Response Cards — centre */}
-      <div className="fixed inset-0 pointer-events-none z-40">
+      <div className="fixed inset-0 pointer-events-none z-40" style={{ top: 40 }}>
         <AnimatePresence mode="popLayout">
           {floatingCards.cards.map((card) => (
             <FloatingResponseCard
@@ -292,7 +256,6 @@ function DesktopWidgetShellInner() {
               onAction={handleCardAction}
               onPositionChange={handlePositionChange}
               onBringToFront={floatingCards.bringToFront}
-              onMouseStateChange={handleMouseState}
               surfaceOpacity={surfaceOpacity}
             />
           ))}
@@ -306,34 +269,40 @@ function DesktopWidgetShellInner() {
           isLoading={desktopIcons.isLoading}
           error={desktopIcons.error}
           surfaceOpacity={surfaceOpacity}
-          onMouseStateChange={handleMouseState}
           onOpenExplorer={(path) => openExplorer(path, 'widget')}
         />
       )}
 
-      {/* File Explorer */}
-      <AnimatePresence>
-        {explorerOpen && (
-          <FileExplorer
-            initialPath={explorerPath}
-            openSource={explorerOpenSource}
-            openToken={explorerOpenToken}
-            onClose={() => setExplorerOpen(false)}
-            onMouseStateChange={handleMouseState}
-            surfaceOpacity={surfaceOpacity}
-          />
-        )}
-      </AnimatePresence>
+      {/* CogWindow system */}
+      <div className="fixed inset-0 pointer-events-none z-30" style={{ top: 40 }}>
+        <AnimatePresence>
+          {cogWindows.windows.map((win) => (
+            <CogWindow
+              key={win.id}
+              window={win}
+              onClose={cogWindows.close}
+              onFocus={cogWindows.focus}
+              onMinimize={cogWindows.minimize}
+              onMaximize={cogWindows.maximize}
+              onPositionChange={cogWindows.updatePosition}
+            >
+              {win.type === 'explorer' && (
+                <FileExplorerEmbedded
+                  initialPath={explorerPath}
+                  openSource={explorerOpenSource}
+                  openToken={explorerOpenToken}
+                  onClose={() => cogWindows.close(win.id)}
+                />
+              )}
+            </CogWindow>
+          ))}
+        </AnimatePresence>
+      </div>
 
-      {/* Side Panel */}
+      {/* Side Panel — settings only */}
       <DesktopSidePanel
-        metrics={null}
-        isAvailable={false}
         isCollapsed={panelCollapsed}
-        activeTab={panelTab}
         onToggleCollapse={() => setPanelCollapsed(prev => !prev)}
-        onTabChange={setPanelTab}
-        onMouseStateChange={handleMouseState}
         surfaceOpacity={surfaceOpacity}
         onSurfaceOpacityChange={setSurfaceOpacity}
         ttsEnabled={tts.isEnabled}
@@ -350,9 +319,7 @@ function DesktopWidgetShellInner() {
         explorerTakeoverEnabled={explorerTakeoverEnabled}
         onExplorerTakeoverEnabledChange={(value) => {
           setExplorerTakeoverEnabled(value);
-          void syncExplorerSettings({
-            explorerTakeoverEnabled: value,
-          });
+          void syncExplorerSettings({ explorerTakeoverEnabled: value });
         }}
         explorerTakeoverState={explorerTakeoverState}
         onActivatePerformanceMode={() => {
@@ -374,7 +341,6 @@ function DesktopWidgetShellInner() {
         isLocalFallback={isLocalFallback}
         brainMode={brainMode}
         messageCount={messages.length}
-        onMouseStateChange={handleMouseState}
         visible={commandBarVisible}
         onToggleVisible={toggleCommandBar}
       />
@@ -383,16 +349,205 @@ function DesktopWidgetShellInner() {
   );
 }
 
+/**
+ * FileExplorerEmbedded — FileExplorer sans WindowFrame propre (CogWindow gère le chrome)
+ */
+const FileExplorerEmbedded = memo(function FileExplorerEmbedded({
+  initialPath,
+  openSource,
+  openToken,
+  onClose,
+}: {
+  initialPath?: string;
+  openSource: 'shell' | 'widget' | 'internal';
+  openToken: number;
+  onClose: () => void;
+}) {
+  return (
+    <div className="relative h-full overflow-hidden">
+      {/* Same ambient background as web */}
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute top-1/3 left-1/3 h-[600px] w-[600px] rounded-full bg-intent-primary/3 blur-[120px]" />
+        <div className="absolute bottom-1/3 right-1/3 h-[400px] w-[400px] rounded-full bg-intent-secondary/3 blur-[100px]" />
+      </div>
+      <div className="relative z-10 h-full">
+        <FileExplorerInner
+          initialPath={initialPath}
+          openSource={openSource}
+          openToken={openToken}
+          onClose={onClose}
+        />
+      </div>
+    </div>
+  );
+});
+
+// Lazy import to avoid circular deps — just re-export the inner parts of FileExplorer
+import { useFileExplorer } from '@/hooks/useFileExplorer';
+import { useSoundEffects as useSfx } from '@/hooks/useSoundEffects';
+import { FileExplorerToolbar } from '@/components/explorer/FileExplorerToolbar';
+import { FileExplorerSidebar } from '@/components/explorer/FileExplorerSidebar';
+import { FileExplorerBreadcrumb } from '@/components/explorer/FileExplorerBreadcrumb';
+import { FileExplorerContent } from '@/components/explorer/FileExplorerContent';
+import { FileExplorerPreview } from '@/components/explorer/FileExplorerPreview';
+import { FileExplorerContextMenu } from '@/components/explorer/FileExplorerContextMenu';
+import { FileExplorerStatusBar } from '@/components/explorer/FileExplorerStatusBar';
+import { FileExplorerHomeContent } from '@/components/explorer/FileExplorerHomeContent';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { motion } from 'framer-motion';
+import type { FileEntity } from '@/types/explorer.types';
+import { QUICK_ACCESS_PATHS } from '@/types/explorer.types';
+
+const FileExplorerInner = memo(function FileExplorerInner({
+  initialPath,
+  openSource,
+  openToken,
+  onClose,
+}: {
+  initialPath?: string;
+  openSource: string;
+  openToken: number;
+  onClose: () => void;
+}) {
+  const explorer = useFileExplorer(initialPath);
+  const navigateTo = explorer.navigateTo;
+  const { play: playSound } = useSfx();
+  const isFirstPathSyncRef = useRef(true);
+  const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; file: FileEntity | null }>({
+    visible: false, x: 0, y: 0, file: null,
+  });
+
+  useEffect(() => { playSound('explorerOpen'); }, [playSound]);
+
+  useEffect(() => {
+    if (!initialPath) return;
+    if (isFirstPathSyncRef.current) { isFirstPathSyncRef.current = false; return; }
+    navigateTo(initialPath);
+  }, [initialPath, navigateTo, openToken]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'F2' && explorer.selected.length === 1) { e.preventDefault(); explorer.setRenaming(explorer.selected[0]); }
+      if (e.key === 'Delete' && explorer.selected.length > 0) { e.preventDefault(); if (confirm(`Supprimer ${explorer.selected.length} élément(s) ?`)) explorer.deleteSelected(); }
+      if (e.key === 'F5') { e.preventDefault(); explorer.refresh(); }
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'c') { e.preventDefault(); explorer.copy(); }
+        if (e.key === 'x') { e.preventDefault(); explorer.cut(); }
+        if (e.key === 'v') { e.preventDefault(); void explorer.paste().then(s => { if (s) playSound('moveSuccess'); }); }
+        if (e.key === 'a') { e.preventDefault(); explorer.selectAll(); }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [explorer, playSound]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, file: FileEntity) => {
+    e.preventDefault(); e.stopPropagation();
+    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, file });
+  }, []);
+
+  const handleNewFolder = useCallback(async () => {
+    const name = prompt('Nom du nouveau dossier :');
+    if (name) await explorer.createFolder(name);
+  }, [explorer]);
+
+  const handleNewFile = useCallback(async () => {
+    prompt('Nom du nouveau fichier :');
+  }, []);
+
+  const handleCopyPath = useCallback(() => {
+    if (contextMenu.file) navigator.clipboard?.writeText(contextMenu.file.path);
+  }, [contextMenu.file]);
+
+  return (
+    <div className="flex h-full flex-col">
+      <FileExplorerToolbar
+        viewMode={explorer.viewMode} showHidden={explorer.showHidden}
+        showPreview={explorer.showPreview} searchQuery={explorer.searchQuery}
+        canGoBack={explorer.canGoBack} canGoForward={explorer.canGoForward}
+        currentPath={explorer.currentPath}
+        onViewModeChange={explorer.setViewMode} onToggleHidden={explorer.setShowHidden}
+        onTogglePreview={explorer.setShowPreview} onSearchChange={explorer.setSearchQuery}
+        onGoBack={explorer.goBack} onGoForward={explorer.goForward} onGoUp={explorer.goUp}
+        onGoHome={() => explorer.navigateTo(QUICK_ACCESS_PATHS.home)}
+        onRefresh={explorer.refresh} onNewFolder={handleNewFolder} onNewFile={handleNewFile}
+        onNavigate={explorer.navigateTo} isVirtualView={explorer.isVirtualView}
+      />
+      <FileExplorerBreadcrumb path={explorer.currentPath} onNavigate={explorer.navigateTo} />
+      <div className="flex flex-1 min-h-0">
+        <FileExplorerSidebar
+          currentPath={explorer.currentPath} drives={explorer.drives}
+          networkMounts={explorer.networkMounts} hostname={explorer.hostname}
+          platform={explorer.platform} onNavigate={explorer.navigateTo}
+        />
+        <ScrollArea className="relative flex-1">
+          {explorer.isLoading && explorer.files.length > 0 && (
+            <div className="pointer-events-none absolute right-3 top-3 z-20 rounded-full border border-intent-primary/20 bg-surface-deep/80 px-2 py-1 backdrop-blur-sm">
+              <motion.div className="w-3 h-3 border border-intent-primary/35 border-t-intent-primary"
+                animate={{ rotate: 360 }} transition={{ duration: 0.9, repeat: Infinity, ease: 'linear' }}
+                style={{ borderRadius: '50%' }} />
+            </div>
+          )}
+          {explorer.isVirtualView ? (
+            <FileExplorerHomeContent currentPath={explorer.currentPath} files={explorer.files}
+              selected={explorer.selected} driveState={explorer.driveState}
+              networkMountState={explorer.networkMountState} localServiceState={explorer.localServiceState}
+              onSelect={explorer.select} onOpen={explorer.open} />
+          ) : explorer.isLoading && explorer.files.length === 0 ? (
+            <div className="flex items-center justify-center h-32">
+              <motion.div className="w-6 h-6 border border-intent-primary/40 border-t-intent-primary"
+                animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                style={{ borderRadius: '50%' }} />
+            </div>
+          ) : explorer.error ? (
+            <div className="p-4 text-center text-[11px] text-intent-warning">{explorer.error}</div>
+          ) : explorer.files.length === 0 ? (
+            <div className="p-8 text-center text-[11px] text-text-ghost/40">Dossier vide</div>
+          ) : (
+            <FileExplorerContent files={explorer.files} viewMode={explorer.viewMode}
+              sortField={explorer.sortField} sortOrder={explorer.sortOrder}
+              selected={explorer.selected} renaming={explorer.renaming}
+              onSelect={explorer.select} onOpen={explorer.open} onPreview={explorer.preview}
+              onSort={explorer.setSort} onRename={explorer.rename} onSetRenaming={explorer.setRenaming}
+              onContextMenu={handleContextMenu} />
+          )}
+        </ScrollArea>
+        {explorer.showPreview && !explorer.isVirtualView && (
+          <div className="w-[220px] min-w-[220px] border-l border-intent-primary/10">
+            <FileExplorerPreview file={explorer.previewFile} content={explorer.previewContent} />
+          </div>
+        )}
+      </div>
+      <FileExplorerStatusBar files={explorer.files} selected={explorer.selected}
+        allFiles={explorer.allFiles} currentDrive={explorer.currentDrive} />
+      <FileExplorerContextMenu visible={contextMenu.visible} x={contextMenu.x} y={contextMenu.y}
+        file={contextMenu.file} hasClipboard={Boolean(explorer.clipboard)}
+        onClose={() => setContextMenu(prev => ({ ...prev, visible: false }))}
+        onOpen={() => contextMenu.file && explorer.open(contextMenu.file)}
+        onCopyPath={handleCopyPath}
+        onRename={() => { if (contextMenu.file) explorer.setRenaming(contextMenu.file.id); }}
+        onDelete={() => explorer.deleteSelected()} onNewFolder={handleNewFolder}
+        onNewFile={handleNewFile} onCopy={explorer.copy} onCut={explorer.cut}
+        onPaste={async () => { const success = await explorer.paste(); if (success) playSound('moveSuccess'); }}
+        onRefresh={explorer.refresh} />
+    </div>
+  );
+});
+
 export function DesktopWidgetShell() {
   return (
     <NotificationProvider>
-      {/* Immersive desktop — same background as web, no transparent overlay */}
-      <div className="fixed inset-0">
-        {/* Ambient background identical to web */}
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-1/3 left-1/3 w-[600px] h-[600px] bg-intent-primary/3 rounded-full blur-[120px]" />
-          <div className="absolute bottom-1/3 right-1/3 w-[400px] h-[400px] bg-intent-secondary/3 rounded-full blur-[100px]" />
-        </div>
+      {/* Immersive desktop — same background as web body CSS */}
+      <div
+        className="fixed inset-0 bg-background"
+        style={{
+          background: `
+            radial-gradient(ellipse 80% 50% at 50% -20%, hsl(187 85% 53% / 0.08), transparent),
+            radial-gradient(ellipse 60% 40% at 80% 100%, hsl(270 80% 65% / 0.05), transparent),
+            hsl(220 20% 4%)
+          `,
+        }}
+      >
         <DesktopWidgetShellInner />
       </div>
     </NotificationProvider>
