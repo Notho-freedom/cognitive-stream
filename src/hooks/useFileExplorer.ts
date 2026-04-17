@@ -372,11 +372,6 @@ export function useFileExplorer(initialPath?: string) {
   }, [loadRealDirectory, loadVirtualLocation, refreshDrives, refreshNetworkSnapshot]);
 
   useEffect(() => {
-    if (!bridge.isAvailable) return;
-    void loadLocation(nav.currentPath);
-  }, [bridge.isAvailable, loadLocation, nav.currentPath]);
-
-  useEffect(() => {
     if (!bridge.isAvailable || isVirtualExplorerPath(nav.currentPath)) return;
 
     let debounceTimer: number | null = null;
