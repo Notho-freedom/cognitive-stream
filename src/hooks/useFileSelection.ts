@@ -1,13 +1,22 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { FileEntity } from '@/types/explorer.types';
 
+/**
+ * Stable selection hook — callbacks never change identity.
+ * Files are read via ref to avoid recreating handlers on each render.
+ */
 export function useFileSelection(files: FileEntity[]) {
   const [selected, setSelected] = useState<string[]>([]);
-  const [lastSelected, setLastSelected] = useState<string | null>(null);
+  const lastSelectedRef = useRef<string | null>(null);
+  const filesRef = useRef(files);
+  filesRef.current = files;
 
   const select = useCallback((id: string, multi = false, range = false) => {
+    const currentFiles = filesRef.current;
+    const lastSelected = lastSelectedRef.current;
+
     if (range && lastSelected) {
-      const ids = files.map(f => f.id);
+      const ids = currentFiles.map(f => f.id);
       const startIdx = ids.indexOf(lastSelected);
       const endIdx = ids.indexOf(id);
       if (startIdx >= 0 && endIdx >= 0) {
@@ -22,16 +31,16 @@ export function useFileSelection(files: FileEntity[]) {
     } else {
       setSelected([id]);
     }
-    setLastSelected(id);
-  }, [files, lastSelected]);
+    lastSelectedRef.current = id;
+  }, []);
 
   const selectAll = useCallback(() => {
-    setSelected(files.map(f => f.id));
-  }, [files]);
+    setSelected(filesRef.current.map(f => f.id));
+  }, []);
 
   const clear = useCallback(() => {
-    setSelected([]);
-    setLastSelected(null);
+    setSelected(prev => (prev.length === 0 ? prev : []));
+    lastSelectedRef.current = null;
   }, []);
 
   const isSelected = useCallback((id: string) => selected.includes(id), [selected]);
