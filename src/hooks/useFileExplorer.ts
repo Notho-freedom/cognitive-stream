@@ -199,6 +199,9 @@ export function useFileExplorer(initialPath?: string) {
   const [renaming, setRenaming] = useState<string | null>(null);
 
   const selection = useFileSelection(files);
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  const lastLoadedPathRef = useRef<string | null>(null);
 
   const refreshDrives = useCallback(async () => {
     if (!bridge.isAvailable) return;
@@ -277,7 +280,7 @@ export function useFileExplorer(initialPath?: string) {
       setError(null);
       setPreviewFile(null);
       setPreviewContent(null);
-      selection.clear();
+      selectionRef.current.clear();
       return;
     }
 
@@ -287,8 +290,8 @@ export function useFileExplorer(initialPath?: string) {
     setError(null);
     setPreviewFile(null);
     setPreviewContent(null);
-    selection.clear();
-  }, [buildVirtualFiles, selection]);
+    selectionRef.current.clear();
+  }, [buildVirtualFiles]);
 
   const loadRealDirectory = useCallback(async (dirPath: string, force = false) => {
     const requestId = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
@@ -301,14 +304,17 @@ export function useFileExplorer(initialPath?: string) {
       setError(null);
       setPreviewFile(null);
       setPreviewContent(null);
-      selection.clear();
+      selectionRef.current.clear();
       setIsLoading(false);
-    } else if (cached?.files?.length) {
+      return;
+    }
+
+    if (cached?.files?.length) {
       setFiles(cached.files);
       setError(null);
       setPreviewFile(null);
       setPreviewContent(null);
-      selection.clear();
+      selectionRef.current.clear();
       setIsLoading(true);
     } else {
       setIsLoading(true);
@@ -331,7 +337,7 @@ export function useFileExplorer(initialPath?: string) {
       setError(result.success ? null : (result.error ?? null));
       setPreviewFile(null);
       setPreviewContent(null);
-      selection.clear();
+      selectionRef.current.clear();
     } catch (err) {
       if (activeDirectoryRequestIdRef.current !== requestId) {
         return;
@@ -348,9 +354,12 @@ export function useFileExplorer(initialPath?: string) {
         setIsLoading(false);
       }
     }
-  }, [bridge, selection]);
+  }, [bridge]);
 
   const loadLocation = useCallback(async (targetPath: string, force = false) => {
+    if (!force && lastLoadedPathRef.current === targetPath) return;
+    lastLoadedPathRef.current = targetPath;
+
     if (isVirtualExplorerPath(targetPath)) {
       activeDirectoryRequestIdRef.current = null;
       await loadVirtualLocation(targetPath, force);

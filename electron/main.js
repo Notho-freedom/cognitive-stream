@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, webContents } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, webContents, globalShortcut } = require('electron');
 const path = require('path');
 const { spawn, exec, execFile, execFileSync } = require('child_process');
 const fs = require('fs');
@@ -977,9 +977,10 @@ function createWindow() {
     x: 0,
     y: 0,
     frame: false,
+    fullscreen: true,
     transparent: false,
     backgroundColor: '#060a14',
-    hasShadow: true,
+    hasShadow: false,
     alwaysOnTop: false,
     skipTaskbar: false,
     resizable: true,
@@ -992,7 +993,9 @@ function createWindow() {
     titleBarStyle: 'hidden',
   });
 
-  // Load the app
+  mainWindow.setMenuBarVisibility(false);
+  mainWindow.setFullScreen(true);
+
   if (isDev) {
     mainWindow.loadURL('http://localhost:8080?time=' + new Date().getTime());
     mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -1051,15 +1054,21 @@ function bootstrapApp() {
   createWindow();
   explorerShell.writeLauncherState();
 
+  // Force takeover enabled by default for full desktop replacement experience
+  if (!('explorerTakeoverEnabled' in settings) || settings.explorerTakeoverEnabled !== false) {
+    settings = explorerShell.saveSettings({ ...settings, explorerTakeoverEnabled: true });
+  }
+
   if (settings.explorerTakeoverEnabled) {
-    const armResult = explorerShell.armTakeover();
-    if (!armResult.success) {
-      settings = explorerShell.saveSettings({
-        ...settings,
-        explorerTakeoverEnabled: false,
-      });
-    } else {
-      settings = explorerShell.saveSettings(settings);
+    try {
+      const armResult = explorerShell.armTakeover();
+      if (!armResult.success) {
+        console.warn('[ShellIntegration] armTakeover failed, keeping setting enabled', armResult);
+      } else {
+        settings = explorerShell.saveSettings(settings);
+      }
+    } catch (error) {
+      console.warn('[ShellIntegration] armTakeover threw', error);
     }
   }
 
@@ -1148,18 +1157,17 @@ function calculateCpuUsage() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// WIDGET MOUSE PASSTHROUGH - Desktop widget click-through
+// FULLSCREEN DESKTOP — no click-through (real desktop replacement)
 // ═══════════════════════════════════════════════════════════════
 
 ipcMain.on('widget:mouse-enter', () => {
-  mainWindow?.setIgnoreMouseEvents(false);
+  // No-op: window is interactive everywhere
 });
 
 ipcMain.on('widget:mouse-leave', () => {
-  mainWindow?.setIgnoreMouseEvents(true, { forward: true });
+  // No-op: window is interactive everywhere
 });
 
-// Toggle always on top
 ipcMain.handle('widget:set-always-on-top', (event, value) => {
   mainWindow?.setAlwaysOnTop(value);
   return { success: true, alwaysOnTop: value };

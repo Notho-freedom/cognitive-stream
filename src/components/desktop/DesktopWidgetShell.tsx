@@ -3,6 +3,7 @@ import { AnimatePresence, MotionConfig } from 'framer-motion';
 import {
   NotificationProvider,
   NotificationQueue,
+  LoadingScreen,
 } from '@/components/cognitive';
 import { useNotifications } from '@/components/cognitive/NotificationQueue';
 import { useCognitiveBrain } from '@/hooks/useCognitiveBrain';
@@ -12,17 +13,15 @@ import { useFloatingCards } from '@/hooks/useFloatingCards';
 import { useSystemBridge } from '@/hooks/useSystemBridge';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useDesktopIcons } from '@/hooks/useDesktopIcons';
-import { usePersistentState } from '@/hooks/usePersistentState';
 import { useCogWindowManager } from '@/hooks/useCogWindowManager';
 import { AutonomyConfirmDialog } from '@/components/cognitive/AutonomyConfirmDialog';
 import { AutonomyQuestionDialog } from '@/components/cognitive/AutonomyQuestionDialog';
-import { DesktopTopBar } from './DesktopTopBar';
+import { DesktopTaskbar } from './DesktopTaskbar';
 import { DesktopCommandBar } from './DesktopCommandBar';
 import { FloatingResponseCard } from './FloatingResponseCard';
 import { DesktopSidePanel } from './DesktopSidePanel';
-import { DesktopIconZone } from './DesktopIconZone';
+import { DesktopIconsLayer } from './DesktopIconsLayer';
 import { CogWindow } from './CogWindow';
-import { FileExplorer } from '@/components/explorer/FileExplorer';
 
 const brainModeLabels: Record<string, string> = {
   idle: 'VEILLE',
@@ -34,9 +33,10 @@ const brainModeLabels: Record<string, string> = {
   adapting: 'ADAPTATION',
 };
 
+const TASKBAR_HEIGHT = 44;
+
 /**
- * DesktopWidgetShell — Bureau immersif type Big Picture
- * Même fond que la vue web, TopBar, CommandBar Ctrl+K, CogWindow system
+ * DesktopWidgetShell — Bureau immersif plein écran type Big Picture
  */
 function DesktopWidgetShellInner() {
   const { push: notifyPush } = useNotifications();
@@ -52,9 +52,8 @@ function DesktopWidgetShellInner() {
   const [surfaceOpacity, setSurfaceOpacity] = useState(0.85);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [soundsEnabled, setSoundsEnabled] = useState(isSoundEnabled());
-  const [showDesktopApps, setShowDesktopApps] = usePersistentState('desktop:show-apps-widget', true);
   const [commandBarVisible, setCommandBarVisible] = useState(false);
-  const [explorerTakeoverEnabled, setExplorerTakeoverEnabled] = useState(false);
+  const [explorerTakeoverEnabled, setExplorerTakeoverEnabled] = useState(true);
   const [explorerTakeoverState, setExplorerTakeoverState] = useState<'native' | 'armed' | 'restoring' | 'degraded'>('native');
   const {
     isAvailable: isElectronBridgeAvailable,
@@ -64,14 +63,14 @@ function DesktopWidgetShellInner() {
     setExplorerSettings,
   } = useSystemBridge();
 
-  const desktopIcons = useDesktopIcons(showDesktopApps);
+  const desktopIcons = useDesktopIcons(true);
 
   const {
     messages, schema, thought, isLoading, isStreaming, error,
     pendingAction, pendingConfirmation, pendingQuestion,
     aiProvider, aiModel, isLocalFallback, mentalState,
     activeTasks, isAutonomousMode, autonomyActionCount, autonomyLimit,
-    sendMessage, handleAction, confirmAction, respondToConfirmation, respondToQuestion, reset,
+    sendMessage, handleAction, confirmAction, respondToConfirmation, respondToQuestion,
   } = brain;
 
   const tts = useCognitiveEdgeTTS({ autoPlay: true, maxLength: 500, skipIfSpeaking: true });
@@ -86,11 +85,6 @@ function DesktopWidgetShellInner() {
     if (!mentalState) return null;
     return brainModeLabels[mentalState.mode] || mentalState.mode.toUpperCase();
   }, [mentalState]);
-
-  // Explorer open as CogWindow
-  const explorerWindowId = useMemo(() => {
-    return cogWindows.windows.find(w => w.type === 'explorer')?.id ?? null;
-  }, [cogWindows.windows]);
 
   const prevSchemaRef = useRef(schema);
   const prevErrorRef = useRef(error);
@@ -211,139 +205,144 @@ function DesktopWidgetShellInner() {
     setExplorerTakeoverState(next.explorerTakeoverState);
   }, [explorerTakeoverEnabled, setExplorerSettings]);
 
-  const toggleCommandBar = useCallback(() => {
-    setCommandBarVisible(prev => !prev);
-  }, []);
+  const toggleCommandBar = useCallback(() => setCommandBarVisible(prev => !prev), []);
+
+  const startMenuItems = useMemo(() => [
+    { label: 'Explorateur', icon: '◇', onClick: () => openExplorer() },
+    { label: 'Terminal IA (Ctrl+K)', icon: '⌘', onClick: () => setCommandBarVisible(true) },
+    { label: 'Configuration', icon: '⚙', onClick: () => setPanelCollapsed(false) },
+  ], [openExplorer]);
 
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
       <>
-      {/* Dialogs */}
-      <AutonomyConfirmDialog
-        open={Boolean(pendingConfirmation)}
-        action={pendingConfirmation?.action}
-        description={pendingConfirmation?.description}
-        onCancel={() => respondToConfirmation(false)}
-        onConfirm={() => respondToConfirmation(true)}
-      />
-      <AutonomyQuestionDialog
-        open={Boolean(pendingQuestion)}
-        question={pendingQuestion?.question}
-        onCancel={() => respondToQuestion('')}
-        onSubmit={respondToQuestion}
-      />
-
-      {/* Notifications */}
-      <NotificationQueue position="top-right" />
-
-      {/* Top Bar — replaces floating BridgeIndicator */}
-      <DesktopTopBar
-        brainMode={brainMode}
-        isAutonomous={isAutonomousMode}
-        autonomyCount={autonomyActionCount}
-        autonomyLimit={autonomyLimit}
-        activeTasks={activeTasks.length}
-      />
-
-      {/* Floating Response Cards — centre */}
-      <div className="fixed inset-0 pointer-events-none z-40" style={{ top: 40 }}>
-        <AnimatePresence mode="popLayout">
-          {floatingCards.cards.map((card) => (
-            <FloatingResponseCard
-              key={card.id}
-              card={card}
-              onDismiss={handleDismiss}
-              onAction={handleCardAction}
-              onPositionChange={handlePositionChange}
-              onBringToFront={floatingCards.bringToFront}
-              surfaceOpacity={surfaceOpacity}
-            />
-          ))}
-        </AnimatePresence>
-      </div>
-
-      {/* Desktop icons zone */}
-      {showDesktopApps && (
-        <DesktopIconZone
-          icons={desktopIcons.icons}
-          isLoading={desktopIcons.isLoading}
-          error={desktopIcons.error}
-          surfaceOpacity={surfaceOpacity}
-          onOpenExplorer={(path) => openExplorer(path, 'widget')}
+        <AutonomyConfirmDialog
+          open={Boolean(pendingConfirmation)}
+          action={pendingConfirmation?.action}
+          description={pendingConfirmation?.description}
+          onCancel={() => respondToConfirmation(false)}
+          onConfirm={() => respondToConfirmation(true)}
         />
-      )}
+        <AutonomyQuestionDialog
+          open={Boolean(pendingQuestion)}
+          question={pendingQuestion?.question}
+          onCancel={() => respondToQuestion('')}
+          onSubmit={respondToQuestion}
+        />
 
-      {/* CogWindow system */}
-      <div className="fixed inset-0 pointer-events-none z-30" style={{ top: 40 }}>
-        <AnimatePresence>
-          {cogWindows.windows.map((win) => (
-            <CogWindow
-              key={win.id}
-              window={win}
-              onClose={cogWindows.close}
-              onFocus={cogWindows.focus}
-              onMinimize={cogWindows.minimize}
-              onMaximize={cogWindows.maximize}
-              onPositionChange={cogWindows.updatePosition}
-            >
-              {win.type === 'explorer' && (
-                <FileExplorerEmbedded
-                  initialPath={explorerPath}
-                  openSource={explorerOpenSource}
-                  openToken={explorerOpenToken}
-                  onClose={() => cogWindows.close(win.id)}
-                />
-              )}
-            </CogWindow>
-          ))}
-        </AnimatePresence>
-      </div>
+        <NotificationQueue position="top-right" />
 
-      {/* Side Panel — settings only */}
-      <DesktopSidePanel
-        isCollapsed={panelCollapsed}
-        onToggleCollapse={() => setPanelCollapsed(prev => !prev)}
-        surfaceOpacity={surfaceOpacity}
-        onSurfaceOpacityChange={setSurfaceOpacity}
-        ttsEnabled={tts.isEnabled}
-        onTtsToggle={tts.setEnabled}
-        voiceInputEnabled={voiceInput.isEnabled}
-        voiceInputSupported={voiceInput.isSupported}
-        onVoiceInputToggle={voiceInput.setEnabled}
-        soundsEnabled={soundsEnabled}
-        onSoundsToggle={setSoundsEnabled}
-        reduceMotion={reduceMotion}
-        onReduceMotionToggle={setReduceMotion}
-        showDesktopApps={showDesktopApps}
-        onShowDesktopAppsToggle={setShowDesktopApps}
-        explorerTakeoverEnabled={explorerTakeoverEnabled}
-        onExplorerTakeoverEnabledChange={(value) => {
-          setExplorerTakeoverEnabled(value);
-          void syncExplorerSettings({ explorerTakeoverEnabled: value });
-        }}
-        explorerTakeoverState={explorerTakeoverState}
-        onActivatePerformanceMode={() => {
-          setReduceMotion(true);
-          setSoundsEnabled(false);
-        }}
-      />
+        {/* Desktop icons layer — directly on the desktop */}
+        <DesktopIconsLayer
+          icons={desktopIcons.icons}
+          iconImages={desktopIcons.iconImages}
+          onResolveImage={desktopIcons.setIconImage}
+          onOpenFolder={(path) => openExplorer(path, 'widget')}
+        />
 
-      {/* Command Bar — hidden by default, Ctrl+K to show */}
-      <DesktopCommandBar
-        onSend={handleSend}
-        onConfirmAction={confirmAction}
-        isLoading={isLoading}
-        isStreaming={isStreaming}
-        error={error}
-        pendingAction={pendingAction}
-        aiProvider={aiProvider}
-        aiModel={aiModel}
-        isLocalFallback={isLocalFallback}
-        brainMode={brainMode}
-        messageCount={messages.length}
-        visible={commandBarVisible}
-        onToggleVisible={toggleCommandBar}
-      />
+        {/* Floating Response Cards — center area, above icons, below taskbar */}
+        <div className="fixed inset-0 pointer-events-none z-40" style={{ bottom: TASKBAR_HEIGHT }}>
+          <AnimatePresence mode="popLayout">
+            {floatingCards.cards.map((card) => (
+              <FloatingResponseCard
+                key={card.id}
+                card={card}
+                onDismiss={handleDismiss}
+                onAction={handleCardAction}
+                onPositionChange={handlePositionChange}
+                onBringToFront={floatingCards.bringToFront}
+                surfaceOpacity={surfaceOpacity}
+              />
+            ))}
+          </AnimatePresence>
+        </div>
+
+        {/* CogWindow system */}
+        <div className="fixed inset-0 pointer-events-none z-30" style={{ bottom: TASKBAR_HEIGHT }}>
+          <AnimatePresence>
+            {cogWindows.windows.map((win) => (
+              <CogWindow
+                key={win.id}
+                window={win}
+                onClose={cogWindows.close}
+                onFocus={cogWindows.focus}
+                onMinimize={cogWindows.minimize}
+                onMaximize={cogWindows.maximize}
+                onPositionChange={cogWindows.updatePosition}
+              >
+                {win.type === 'explorer' && (
+                  <FileExplorerEmbedded
+                    initialPath={explorerPath}
+                    openSource={explorerOpenSource}
+                    openToken={explorerOpenToken}
+                    onClose={() => cogWindows.close(win.id)}
+                  />
+                )}
+              </CogWindow>
+            ))}
+          </AnimatePresence>
+        </div>
+
+        {/* Side Panel — Config + Tests */}
+        <DesktopSidePanel
+          isCollapsed={panelCollapsed}
+          onToggleCollapse={() => setPanelCollapsed(prev => !prev)}
+          surfaceOpacity={surfaceOpacity}
+          onSurfaceOpacityChange={setSurfaceOpacity}
+          ttsEnabled={tts.isEnabled}
+          onTtsToggle={tts.setEnabled}
+          voiceInputEnabled={voiceInput.isEnabled}
+          voiceInputSupported={voiceInput.isSupported}
+          onVoiceInputToggle={voiceInput.setEnabled}
+          soundsEnabled={soundsEnabled}
+          onSoundsToggle={setSoundsEnabled}
+          reduceMotion={reduceMotion}
+          onReduceMotionToggle={setReduceMotion}
+          explorerTakeoverEnabled={explorerTakeoverEnabled}
+          onExplorerTakeoverEnabledChange={(value) => {
+            setExplorerTakeoverEnabled(value);
+            void syncExplorerSettings({ explorerTakeoverEnabled: value });
+          }}
+          explorerTakeoverState={explorerTakeoverState}
+          onActivatePerformanceMode={() => {
+            setReduceMotion(true);
+            setSoundsEnabled(false);
+          }}
+          onPushSchema={(s) => floatingCards.pushSchema(s)}
+          onPushError={(m) => floatingCards.pushError(m)}
+          onPushThought={(t) => floatingCards.pushThought(t)}
+          onOpenExplorer={(p) => openExplorer(p, 'internal')}
+        />
+
+        {/* Taskbar */}
+        <DesktopTaskbar
+          brainMode={brainMode}
+          isAutonomous={isAutonomousMode}
+          autonomyCount={autonomyActionCount}
+          autonomyLimit={autonomyLimit}
+          activeTasks={activeTasks.length}
+          windows={cogWindows.windows}
+          onFocusWindow={cogWindows.focus}
+          onMinimizeWindow={cogWindows.minimize}
+          startMenuItems={startMenuItems}
+        />
+
+        {/* Command Bar — hidden by default, Ctrl+K to show */}
+        <DesktopCommandBar
+          onSend={handleSend}
+          onConfirmAction={confirmAction}
+          isLoading={isLoading}
+          isStreaming={isStreaming}
+          error={error}
+          pendingAction={pendingAction}
+          aiProvider={aiProvider}
+          aiModel={aiModel}
+          isLocalFallback={isLocalFallback}
+          brainMode={brainMode}
+          messageCount={messages.length}
+          visible={commandBarVisible}
+          onToggleVisible={toggleCommandBar}
+        />
       </>
     </MotionConfig>
   );
@@ -365,7 +364,6 @@ const FileExplorerEmbedded = memo(function FileExplorerEmbedded({
 }) {
   return (
     <div className="relative h-full overflow-hidden">
-      {/* Same ambient background as web */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute top-1/3 left-1/3 h-[600px] w-[600px] rounded-full bg-intent-primary/3 blur-[120px]" />
         <div className="absolute bottom-1/3 right-1/3 h-[400px] w-[400px] rounded-full bg-intent-secondary/3 blur-[100px]" />
@@ -382,7 +380,6 @@ const FileExplorerEmbedded = memo(function FileExplorerEmbedded({
   );
 });
 
-// Lazy import to avoid circular deps — just re-export the inner parts of FileExplorer
 import { useFileExplorer } from '@/hooks/useFileExplorer';
 import { useSoundEffects as useSfx } from '@/hooks/useSoundEffects';
 import { FileExplorerToolbar } from '@/components/explorer/FileExplorerToolbar';
@@ -400,9 +397,7 @@ import { QUICK_ACCESS_PATHS } from '@/types/explorer.types';
 
 const FileExplorerInner = memo(function FileExplorerInner({
   initialPath,
-  openSource,
   openToken,
-  onClose,
 }: {
   initialPath?: string;
   openSource: string;
@@ -535,11 +530,13 @@ const FileExplorerInner = memo(function FileExplorerInner({
 });
 
 export function DesktopWidgetShell() {
+  const [booting, setBooting] = useState(true);
   return (
     <NotificationProvider>
+      {booting && <LoadingScreen onComplete={() => setBooting(false)} minDuration={2500} />}
       {/* Immersive desktop — same background as web body CSS */}
       <div
-        className="fixed inset-0 bg-background"
+        className="fixed inset-0"
         style={{
           background: `
             radial-gradient(ellipse 80% 50% at 50% -20%, hsl(187 85% 53% / 0.08), transparent),
@@ -548,7 +545,7 @@ export function DesktopWidgetShell() {
           `,
         }}
       >
-        <DesktopWidgetShellInner />
+        {!booting && <DesktopWidgetShellInner />}
       </div>
     </NotificationProvider>
   );
