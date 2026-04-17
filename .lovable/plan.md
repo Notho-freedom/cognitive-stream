@@ -1,147 +1,164 @@
 
 
-# Plan: Refonte complète Desktop Immersif + Explorer Production-Grade
+# Plan : Bureau immersif plein écran + corrections explorateur + animations
 
-## Résumé
-Transformer l'app Electron d'un overlay transparent cassé en un vrai bureau immersif style Big Picture, corriger tous les bugs TS, supprimer le système de métriques, ajouter DnD, Ctrl+K, et un système de fenêtres cognitives (CogWindow).
-
----
-
-## Phase 1 — Corriger le bug critique `electron/main.js`
-
-**Fichier**: `electron/main.js` ligne 909
-- `includeLegacy` n'est jamais déclaré dans `clearManagedShellOverrides()` → remplacer par `true` (comportement legacy par défaut)
-
-## Phase 2 — Supprimer le système de métriques
-
-**Supprimer** `src/hooks/useSystemMetrics.ts` — n'est importé nulle part.
-
-**Modifier** `src/components/desktop/DesktopSidePanel.tsx` :
-- Retirer les props `metrics` et `isAvailable` (plus utilisées car `DesktopWidgetShell` passe déjà `null`/`false`)
-- Retirer l'onglet "STATUT" (CPU/RAM/GPU/Disk/Net) qui affiche toujours "N/A"
-- Ne garder que l'onglet "CONFIG" (settings)
-- Simplifier le composant en panneau de settings pur
-
-**Modifier** `src/components/desktop/DesktopWidgetShell.tsx` :
-- Retirer `metrics={null}` et `isAvailable={false}` du `DesktopSidePanel`
-
-## Phase 3 — Bureau immersif (Big Picture)
-
-### 3a. `electron/main.js` — `createWindow()`
-- Passer `transparent: false` et `backgroundColor: '#060a14'` (le fond void du CSS)
-- Passer `alwaysOnTop: false`, `skipTaskbar: false`, `resizable: true`, `movable: true`
-- Retirer `setIgnoreMouseEvents(true, { forward: true })` — plus besoin avec un vrai bureau
-- Garder `frame: false` pour le frameless
-
-### 3b. `src/hooks/useElectronMode.ts`
-- Retirer toute logique de transparence
-- Garder juste la détection `isElectron`
-
-### 3c. `src/components/desktop/DesktopWidgetShell.tsx`
-- Restructurer en couches :
-  - `DesktopBackground` — même fond que `body` CSS (gradients + noise)
-  - `DesktopTopBar` — nouveau composant : heure, indicateur bridge, nom machine
-  - Zone centrale — espace pour les CogWindows
-  - `DesktopCommandBar` — reste en bas-centre, invisible par défaut, Ctrl+K
-- Le fond du shell reprend exactement le background du `body` dans `index.css`
-- Les widgets avec le focus deviennent opaques (surfaceOpacity → 1.0)
-
-### 3d. Nouveau: `src/components/desktop/DesktopTopBar.tsx`
-- Barre supérieure minimaliste : horloge, BridgeIndicator intégré, nom machine
-- Remplace le BridgeIndicator flottant
-
-## Phase 4 — Système CogWindow
-
-### Nouveau: `src/hooks/useCogWindowManager.ts`
-- Gère un registre de fenêtres ouvertes (id, type, position, size, z-index, state)
-- Actions: open, close, minimize, maximize, focus (z-index), drag, resize
-- Une fenêtre avec le focus → `surfaceOpacity: 1.0` (pas de transparence)
-
-### Nouveau: `src/components/desktop/CogWindow.tsx`
-- Wrapper générique pour toutes les apps du bureau
-- Utilise `WindowFrame` pour le chrome (titre, boutons min/max/close)
-- Drag via header (react-dnd ou pointer events)
-- Resize via bordures
-- z-index dynamique via le manager
-
-### Intégration
-- `FileExplorer` s'ouvre dans un `CogWindow`
-- `FloatingResponseCard` reste flottante (pas dans CogWindow) — c'est le système de réponse IA
-- Les cartes de réponse IA gardent le comportement actuel
-
-## Phase 5 — CommandBar Ctrl+K
-
-**Modifier** `src/components/desktop/DesktopWidgetShell.tsx` :
-- `commandBarVisible` reste `false` au lancement (déjà le cas)
-- Le listener `Ctrl+K` existe déjà dans `DesktopCommandBar` — vérifier qu'il fonctionne
-
-**Modifier** `src/components/desktop/DesktopCommandBar.tsx` :
-- S'assurer que le `useEffect` pour Ctrl+K est bien branché sur `onToggleVisible`
-- Ajouter animation d'apparition/disparition plus fluide
-
-## Phase 6 — Explorer = même fond que le web
-
-**Modifier** `src/components/explorer/FileExplorer.tsx` :
-- Le fond de l'explorateur reprend exactement le background CSS du body (gradients radials + noise)
-- Quand l'explorateur a le focus → opacité 1.0, pas de transparence
-
-## Phase 7 — Explorer Windows Native Replacement
-
-**Modifier** `electron/main.js` :
-- Les handlers shell (`applyWindowsShellIntegration`, `selfHealWindowsShellIntegration`) existent déjà
-- Fix le bug `includeLegacy` (Phase 1)
-- S'assurer que les handlers `second-instance`, `explorer:open-request`, et le script PowerShell fonctionnent proprement
-- Rendre le tout résilient : wrap chaque opération registre dans try/catch
-
-**Modifier** `electron/explorer-shell.js` : 
-- Vérifier que `armTakeover`, `restoreNativeShell` sont robustes
-
-## Phase 8 — Drag & Drop
-
-### Nouveau: `src/hooks/useDragDrop.ts`
-- Hook générique pour le DnD de fichiers dans l'explorateur
-- Utilise HTML5 Drag and Drop API (natif, performant)
-- Supporte : déplacement de fichiers entre dossiers, drop sur sidebar, drop sur zones de l'explorateur
-
-### Intégration dans l'explorateur
-- `FileExplorerContent` : items draggables
-- `FileExplorerSidebar` : zones de drop (accès rapides, dossiers)
-- Feedback visuel : highlight de la zone de drop, ghost image
-
-### CogWindow DnD
-- Les fenêtres CogWindow sont déplaçables via leur barre de titre (pointer events, pas HTML5 DnD)
-
-## Phase 9 — Performances
-
-- Memoization agressive : `React.memo` sur les composants lourds (`FileExplorerContent`, `FloatingResponseCard`)
-- `useMemo`/`useCallback` déjà bien utilisés — vérifier qu'il n'y a pas de re-renders inutiles
-- Virtualisation liste fichiers : utiliser `@tanstack/react-virtual` pour les grandes listes
-- Lazy load du panneau de preview
-- Debounce search dans l'explorateur (déjà partiel, compléter)
-
-## Phase 10 — Corrections backend
-
-**`supabase/functions/chat/index.ts`** et **`ENHANCED_SYSTEM_PROMPT.ts`** : ces fichiers semblent propres, pas d'erreurs évidentes. Vérifier le build Deno.
-
-**`supabase/functions/system-actions/index.ts`** : propre également. Pas de corrections nécessaires sauf si des erreurs de lint apparaissent.
+## Synthèse des objectifs utilisateur
+1. Lancement plein écran (fullscreen, pas une fenêtre)
+2. Supprimer le widget `DesktopIconZone` → icônes directement sur le bureau, miniatures, **cache persistant**
+3. La TopBar devient une vraie **barre des tâches** (en bas, façon Windows)
+4. Au lancement, l'app **prend la place de l'explorateur Windows** (takeover automatique + Win+E)
+5. **Corriger l'explorateur** : actuellement il tourne en boucle quand on ouvre un dossier puis plante
+6. **Animation de démarrage** style OS (LoadingScreen existe déjà → l'intégrer + l'améliorer)
+7. **Panel de test des composants cognitifs** (notifications, schémas, réponses) dans le panneau droit
+8. CommandBar Ctrl+K (déjà OK)
 
 ---
 
-## Fichiers créés
-- `src/components/desktop/DesktopTopBar.tsx`
-- `src/components/desktop/CogWindow.tsx`
-- `src/hooks/useCogWindowManager.ts`
-- `src/hooks/useDragDrop.ts`
+## Phase 1 — Plein écran + barre des tâches en bas
 
-## Fichiers modifiés
-- `electron/main.js` — fix `includeLegacy`, `createWindow()` non-transparent
-- `src/hooks/useElectronMode.ts` — simplifier
-- `src/components/desktop/DesktopWidgetShell.tsx` — restructurer en bureau immersif
-- `src/components/desktop/DesktopSidePanel.tsx` — retirer métriques
-- `src/components/desktop/DesktopCommandBar.tsx` — polish Ctrl+K
-- `src/components/explorer/FileExplorer.tsx` — fond web, intégration CogWindow
-- `src/components/explorer/FileExplorerContent.tsx` — DnD + virtualisation
+### `electron/main.js` `createWindow()`
+- Ajouter `fullscreen: true` (occupe tout l'écran y compris derrière la barre des tâches Windows)
+- Garder `frame: false`, `backgroundColor: '#060a14'`
+- Au démarrage : `mainWindow.setFullScreen(true)` + `setMenuBarVisibility(false)`
 
-## Fichiers supprimés
-- `src/hooks/useSystemMetrics.ts`
+### `DesktopTopBar.tsx` → renommer / repositionner en `DesktopTaskbar.tsx`
+- Position : `fixed bottom-0` (au lieu de top-0), hauteur ~40px
+- Contenu : bouton "Démarrer" (logo cognitive ◈) à gauche, fenêtres ouvertes (CogWindows) au centre, horloge + status bridge + brain mode à droite
+- Le bouton démarrage ouvre un menu qui liste les apps disponibles (Explorer, Test Panel, etc.)
+- Plus aucun élément en haut de l'écran → bureau totalement libre
+
+### `DesktopWidgetShell.tsx`
+- Retirer `DesktopTopBar`, ajouter `DesktopTaskbar` en bas
+- Décaler les zones : floating cards `top: 0` → `bottom: 48`, CogWindows zone idem
+- Retirer le `top: 40` des layers
+
+---
+
+## Phase 2 — Icônes directement sur le bureau + cache persistant
+
+### Supprimer `DesktopIconZone.tsx` (le widget encadré)
+
+### Nouveau composant : `src/components/desktop/DesktopIconsLayer.tsx`
+- Plein écran, `fixed inset-0`, `pointer-events: none` au conteneur, `pointer-events: auto` sur chaque icône
+- Grid CSS auto-fill (colonnes ~80px), padding 24px haut/gauche
+- Icônes **miniatures** : 40px image + label 10px (vs 56px actuel)
+- Style sobre type Windows : pas de cadre futuriste, juste icône + label avec text-shadow
+- Sélection (clic = highlight, double-clic = ouvrir)
+- Drag & drop pour réorganiser (positions persistées)
+
+### `useDesktopIcons.ts` — cache persistant
+- Sauvegarder `icons` + `iconCache` (data URLs des icônes résolues) dans `localStorage` (clé `desktop:icons:cache:v1`)
+- Au mount : **charger immédiatement le cache** → pas d'écran vide / loader visible
+- Refresh en arrière-plan, mise à jour silencieuse seulement si diff
+- Persister aussi les positions custom (drag) dans `localStorage`
+
+### `DesktopWidgetShell.tsx`
+- Remplacer `<DesktopIconZone />` par `<DesktopIconsLayer />`
+- Retirer le toggle `showDesktopApps` du panel (icônes toujours visibles)
+
+---
+
+## Phase 3 — Corriger l'explorateur (boucle infinie + crash)
+
+### Problème identifié dans `useFileExplorer.ts`
+`selection.clear()` est dans la dépendance de `loadVirtualLocation`/`loadRealDirectory`. Si `selection` est recréé à chaque render → boucle infinie de `loadLocation` → `useFileSelection` recreates → re-render → re-fetch.
+
+### Corrections
+- `useFileSelection` : vérifier que les fonctions retournées sont stables (`useCallback` avec deps stables)
+- `loadVirtualLocation`, `loadRealDirectory` : retirer `selection` des deps, utiliser une ref `selectionRef` pour appeler `clear()` sans recréer le callback
+- `loadLocation` : pareil, dépendre uniquement de `loadRealDirectory` et `loadVirtualLocation`
+- Ajouter un guard `if (lastLoadedPath.current === targetPath && !force) return` dans `loadLocation`
+
+### CogWindow integration
+- Vérifier que `FileExplorerEmbedded` ne re-mount pas à chaque render du shell (déjà memo)
+- Ajouter une key stable basée sur `win.id` uniquement
+
+---
+
+## Phase 4 — Takeover auto au lancement + Win+E
+
+### `electron/main.js` `bootstrapApp()`
+- Forcer `settings.explorerTakeoverEnabled = true` au premier lancement (pas optionnel)
+- Appeler `explorerShell.armTakeover()` systématiquement après `createWindow()`
+- Logger en cas d'échec mais ne pas désactiver
+
+### Win+E hotkey
+- Enregistrer `globalShortcut.register('Super+E', ...)` (Windows key + E) pour ouvrir notre explorateur via `enqueueExplorerOpen(null, 'hotkey')`
+- Dans `app.whenReady()`, après bootstrap
+
+### Side panel
+- Garder le toggle `explorerTakeoverEnabled` mais avec valeur par défaut `true`
+
+---
+
+## Phase 5 — Animation de démarrage style OS
+
+### Intégrer `LoadingScreen` (existe déjà) dans `Index.tsx` ou `DesktopWidgetShell`
+- Afficher au tout premier mount, avant le rendu du shell
+- Durée min 2.5s, séquence visible : INIT → MODULES → BRIDGE → AI → READY
+- Fade out propre sur le bureau
+
+### Améliorations LoadingScreen
+- Ajouter un quatrième StatusLine "BUREAU" qui passe à OK quand bridge ready + icônes cache chargées
+- Texte "COGNITIVE STREAM OS" plus impactant
+- Un petit flash final "WELCOME" avant disparition
+
+---
+
+## Phase 6 — Panel de test des composants cognitifs
+
+### `DesktopSidePanel.tsx` — ajouter onglets
+Restructurer en 2 onglets : **CONFIG** (existant) + **TEST**
+
+### Nouveau : section TEST dans le panel
+Boutons pour déclencher manuellement :
+- **Notification info / success / warning / error** (4 boutons → `notifyPush`)
+- **Réponse texte simple** → push une `FloatingResponseCard` avec un schéma `{ blocks: [{ type:'text' }] }`
+- **Réponse riche** (liste + boutons + badge) → schéma de démo
+- **Erreur** → `floatingCards.pushError("Erreur de test")`
+- **Pensée** → `notifyPush` avec priority low + simulation thought
+- **Ouvrir explorateur** sur un chemin de test
+- **Action confirmation** → simule `pendingConfirmation`
+- **Question** → simule `pendingQuestion`
+
+### Connexion
+- `DesktopWidgetShell` passe `notifyPush`, `floatingCards`, schémas de démo au panel via props
+
+---
+
+## Phase 7 — Drag & drop icônes bureau
+
+- Hook `useDragDrop` (existe déjà) appliqué aux icônes
+- Position custom enregistrée dans localStorage par path
+- Snap à la grille (cellule 80x96)
+
+---
+
+## Fichiers impactés
+
+**Créés** :
+- `src/components/desktop/DesktopTaskbar.tsx` (renommage TopBar → bas)
+- `src/components/desktop/DesktopIconsLayer.tsx`
+- `src/components/desktop/CognitiveTestPanel.tsx`
+
+**Modifiés** :
+- `electron/main.js` — fullscreen + globalShortcut Win+E + takeover par défaut
+- `src/components/desktop/DesktopWidgetShell.tsx` — taskbar bas, icons layer, loading screen, test panel
+- `src/components/desktop/DesktopSidePanel.tsx` — onglets CONFIG/TEST
+- `src/components/cognitive/LoadingScreen.tsx` — séquence OS améliorée
+- `src/hooks/useDesktopIcons.ts` — cache localStorage persistant
+- `src/hooks/useFileExplorer.ts` — fix boucle infinie (deps selection)
+- `src/hooks/useFileSelection.ts` — stabiliser callbacks
+
+**Supprimés** :
+- `src/components/desktop/DesktopIconZone.tsx` (remplacé par DesktopIconsLayer)
+- `src/components/desktop/DesktopTopBar.tsx` (remplacé par DesktopTaskbar)
+
+## Résultat attendu
+1. Lancement Electron → animation OS 2.5s → bureau plein écran
+2. Icônes du bureau visibles instantanément (cache)
+3. Barre des tâches en bas avec horloge, fenêtres, démarrer
+4. Win+E ou ouverture de dossier → notre explorateur (qui charge correctement, sans boucle)
+5. Panel droit : config + tests cognitifs
+6. CommandBar Ctrl+K (inchangé)
 
