@@ -75,7 +75,17 @@ export function CogList({
         className
       )}
     >
-      {items.map((item, i) => (
+      {items.map((rawItem, i) => {
+        // Normalise item: accept string OR { label, value } OR any object
+        const item: string =
+          typeof rawItem === 'string'
+            ? rawItem
+            : rawItem && typeof rawItem === 'object'
+              ? ('label' in (rawItem as any) || 'value' in (rawItem as any))
+                ? `${(rawItem as any).label ?? ''}${('label' in (rawItem as any) && 'value' in (rawItem as any)) ? ' : ' : ''}${(rawItem as any).value ?? ''}`
+                : JSON.stringify(rawItem)
+              : String(rawItem ?? '');
+        return (
         <motion.li
           key={i}
           initial={{ opacity: 0, x: -10 }}
@@ -114,7 +124,8 @@ export function CogList({
             />
           )}
         </motion.li>
-      ))}
+        );
+      })}
     </motion.ul>
   );
 }

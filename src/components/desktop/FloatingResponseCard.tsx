@@ -76,6 +76,14 @@ export const FloatingResponseCard = memo(function FloatingResponseCard({
     return () => clearTimeout(timer);
   }, [card.id, card.autoDismissMs, card.timestamp, isComplete, card.type, card.text, onDismiss]);
 
+  // Hard safety: regardless of streaming state, force-close after autoDismissMs + 1s
+  // (prevents cards lingering forever if isComplete never flips).
+  useEffect(() => {
+    if (!card.autoDismissMs || card.autoDismissMs <= 0) return;
+    const safety = setTimeout(() => onDismiss(card.id), card.autoDismissMs + 1000);
+    return () => clearTimeout(safety);
+  }, [card.id, card.autoDismissMs, card.timestamp, onDismiss]);
+
   const frameVariant = card.type === 'error' ? 'secondary' : 'primary';
   const config = TYPE_CONFIG[card.type];
 
