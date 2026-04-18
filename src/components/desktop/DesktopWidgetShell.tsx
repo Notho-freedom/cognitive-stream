@@ -14,6 +14,9 @@ import { useSystemBridge } from '@/hooks/useSystemBridge';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useDesktopIcons } from '@/hooks/useDesktopIcons';
 import { useCogWindowManager } from '@/hooks/useCogWindowManager';
+import { useIconScale } from '@/hooks/useIconScale';
+import { useWallpaper } from '@/hooks/useWallpaper';
+import { useContextMenu } from '@/hooks/useContextMenu';
 import { AutonomyConfirmDialog } from '@/components/cognitive/AutonomyConfirmDialog';
 import { AutonomyQuestionDialog } from '@/components/cognitive/AutonomyQuestionDialog';
 import { DesktopTaskbar } from './DesktopTaskbar';
@@ -21,7 +24,11 @@ import { DesktopCommandBar } from './DesktopCommandBar';
 import { FloatingResponseCard } from './FloatingResponseCard';
 import { DesktopSidePanel } from './DesktopSidePanel';
 import { DesktopIconsLayer } from './DesktopIconsLayer';
+import { DesktopAmbient } from './DesktopAmbient';
+import { CogContextMenu } from './CogContextMenu';
+import { CognitiveTestPanel } from './CognitiveTestPanel';
 import { CogWindow } from './CogWindow';
+import { useNavigate } from 'react-router-dom';
 
 const brainModeLabels: Record<string, string> = {
   idle: 'VEILLE',
@@ -35,15 +42,17 @@ const brainModeLabels: Record<string, string> = {
 
 const TASKBAR_HEIGHT = 44;
 
-/**
- * DesktopWidgetShell — Bureau immersif plein écran type Big Picture
- */
 function DesktopWidgetShellInner() {
   const { push: notifyPush } = useNotifications();
   const brain = useCognitiveBrain(notifyPush);
   const { play: playSound, setEnabled: setSoundEnabled, isEnabled: isSoundEnabled } = useSoundEffects();
   const floatingCards = useFloatingCards();
   const cogWindows = useCogWindowManager();
+  const { scale: iconScale } = useIconScale();
+  const wallpaper = useWallpaper();
+  const desktopCtxMenu = useContextMenu();
+  const navigate = useNavigate();
+
   const activeSchemaCardIdRef = useRef<string | null>(null);
   const [panelCollapsed, setPanelCollapsed] = useState(true);
   const [explorerPath, setExplorerPath] = useState<string | undefined>();
@@ -55,6 +64,7 @@ function DesktopWidgetShellInner() {
   const [commandBarVisible, setCommandBarVisible] = useState(false);
   const [explorerTakeoverEnabled, setExplorerTakeoverEnabled] = useState(true);
   const [explorerTakeoverState, setExplorerTakeoverState] = useState<'native' | 'armed' | 'restoring' | 'degraded'>('native');
+
   const {
     isAvailable: isElectronBridgeAvailable,
     notifyExplorerReady,
@@ -74,11 +84,14 @@ function DesktopWidgetShellInner() {
   } = brain;
 
   const tts = useCognitiveEdgeTTS({ autoPlay: true, maxLength: 500, skipIfSpeaking: true });
+
+  // Stable ref-based callback for voice input — prevents loop
+  const handleSendRef = useRef<(msg: string) => void>(() => {});
   const voiceInput = useVoiceInput({
-    onFinalTranscript: (text) => {
-      if (!text.trim()) return;
-      handleSend(text.trim());
-    },
+    onFinalTranscript: useCallback((text: string) => {
+      const trimmed = text.trim();
+      if (trimmed) handleSendRef.current(trimmed);
+    }, []),
   });
 
   const brainMode = useMemo(() => {
@@ -160,6 +173,9 @@ function DesktopWidgetShellInner() {
     sendMessage(msg);
   }, [playSound, sendMessage]);
 
+  // Keep ref in sync for voice input
+  useEffect(() => { handleSendRef.current = handleSend; }, [handleSend]);
+
   const handleCardAction = useCallback((action: Parameters<typeof handleAction>[0]) => {
     playSound('action');
     handleAction(action);
@@ -184,18 +200,30 @@ function DesktopWidgetShellInner() {
     });
   }, [cogWindows]);
 
+  // Stable refs to avoid loops in the bridge subscription effect
+  const openExplorerRef = useRef(openExplorer);
+  useEffect(() => { openExplorerRef.current = openExplorer; }, [openExplorer]);
+  const getExplorerSettingsRef = useRef(getExplorerSettings);
+  useEffect(() => { getExplorerSettingsRef.current = getExplorerSettings; }, [getExplorerSettings]);
+  const onExplorerOpenRequestRef = useRef(onExplorerOpenRequest);
+  useEffect(() => { onExplorerOpenRequestRef.current = onExplorerOpenRequest; }, [onExplorerOpenRequest]);
+  const notifyExplorerReadyRef = useRef(notifyExplorerReady);
+  useEffect(() => { notifyExplorerReadyRef.current = notifyExplorerReady; }, [notifyExplorerReady]);
+
   useEffect(() => {
     if (!isElectronBridgeAvailable) return;
-    getExplorerSettings().then((settings) => {
+    let disposed = false;
+    getExplorerSettingsRef.current().then((settings) => {
+      if (disposed) return;
       setExplorerTakeoverEnabled(settings.explorerTakeoverEnabled);
       setExplorerTakeoverState(settings.explorerTakeoverState);
     });
-    const unsubscribe = onExplorerOpenRequest(({ path, source }) => {
-      openExplorer(path, source === 'shell' ? 'shell' : 'internal');
+    const unsubscribe = onExplorerOpenRequestRef.current(({ path, source }) => {
+      openExplorerRef.current(path, source === 'shell' ? 'shell' : 'internal');
     });
-    notifyExplorerReady();
-    return unsubscribe;
-  }, [getExplorerSettings, isElectronBridgeAvailable, notifyExplorerReady, onExplorerOpenRequest, openExplorer]);
+    notifyExplorerReadyRef.current();
+    return () => { disposed = true; unsubscribe?.(); };
+  }, [isElectronBridgeAvailable]);
 
   const syncExplorerSettings = useCallback(async (updates: Partial<{ explorerTakeoverEnabled: boolean }>) => {
     const next = await setExplorerSettings({
@@ -207,11 +235,22 @@ function DesktopWidgetShellInner() {
 
   const toggleCommandBar = useCallback(() => setCommandBarVisible(prev => !prev), []);
 
-  const startMenuItems = useMemo(() => [
+  const radialItems = useMemo(() => [
     { label: 'Explorateur', icon: '◇', onClick: () => openExplorer() },
-    { label: 'Terminal IA (Ctrl+K)', icon: '⌘', onClick: () => setCommandBarVisible(true) },
-    { label: 'Configuration', icon: '⚙', onClick: () => setPanelCollapsed(false) },
-  ], [openExplorer]);
+    { label: 'Terminal', icon: '⌘', onClick: () => setCommandBarVisible(true) },
+    { label: 'Tests', icon: '⊛', onClick: () => cogWindows.open('tests', 'PANEL DE TEST', { size: { width: 480, height: 600 } }) },
+    { label: 'Activité', icon: '≡', onClick: () => setPanelCollapsed(false) },
+    { label: 'Paramètres', icon: '⚙', onClick: () => navigate('/settings') },
+    { label: 'Quitter', icon: '✕', danger: true, onClick: () => { (window as any).electron?.app?.quit?.(); } },
+  ], [openExplorer, cogWindows, navigate]);
+
+  const desktopMenuItems = useMemo(() => [
+    { label: 'Actualiser', icon: '↻', onClick: () => desktopIcons.refresh() },
+    { label: 'Ouvrir explorateur', icon: '◇', onClick: () => openExplorer() },
+    { separator: true, label: '', onClick: () => {} },
+    { label: 'Terminal IA', icon: '⌘', onClick: () => setCommandBarVisible(true) },
+    { label: 'Personnaliser', icon: '⚙', onClick: () => navigate('/settings') },
+  ], [desktopIcons, openExplorer, navigate]);
 
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
@@ -232,15 +271,20 @@ function DesktopWidgetShellInner() {
 
         <NotificationQueue position="top-right" />
 
-        {/* Desktop icons layer — directly on the desktop */}
+        {/* Ambient (particles, scanline, ripples) */}
+        <DesktopAmbient disabled={reduceMotion} />
+
+        {/* Desktop icons */}
         <DesktopIconsLayer
           icons={desktopIcons.icons}
           iconImages={desktopIcons.iconImages}
           onResolveImage={desktopIcons.setIconImage}
           onOpenFolder={(path) => openExplorer(path, 'widget')}
+          scale={iconScale}
+          onDesktopContextMenu={(e) => desktopCtxMenu.openMenu(e, desktopMenuItems)}
         />
 
-        {/* Floating Response Cards — center area, above icons, below taskbar */}
+        {/* Floating Response Cards */}
         <div className="fixed inset-0 pointer-events-none z-40" style={{ bottom: TASKBAR_HEIGHT }}>
           <AnimatePresence mode="popLayout">
             {floatingCards.cards.map((card) => (
@@ -257,7 +301,7 @@ function DesktopWidgetShellInner() {
           </AnimatePresence>
         </div>
 
-        {/* CogWindow system */}
+        {/* CogWindows */}
         <div className="fixed inset-0 pointer-events-none z-30" style={{ bottom: TASKBAR_HEIGHT }}>
           <AnimatePresence>
             {cogWindows.windows.map((win) => (
@@ -278,12 +322,22 @@ function DesktopWidgetShellInner() {
                     onClose={() => cogWindows.close(win.id)}
                   />
                 )}
+                {win.type === 'tests' && (
+                  <div className="p-4 h-full overflow-auto">
+                    <CognitiveTestPanel
+                      onPushSchema={(s) => floatingCards.pushSchema(s)}
+                      onPushError={(m) => floatingCards.pushError(m)}
+                      onPushThought={(t) => floatingCards.pushThought(t)}
+                      onOpenExplorer={(p) => openExplorer(p, 'internal')}
+                    />
+                  </div>
+                )}
               </CogWindow>
             ))}
           </AnimatePresence>
         </div>
 
-        {/* Side Panel — Config + Tests */}
+        {/* Side Panel — Activity */}
         <DesktopSidePanel
           isCollapsed={panelCollapsed}
           onToggleCollapse={() => setPanelCollapsed(prev => !prev)}
@@ -308,13 +362,11 @@ function DesktopWidgetShellInner() {
             setReduceMotion(true);
             setSoundsEnabled(false);
           }}
-          onPushSchema={(s) => floatingCards.pushSchema(s)}
-          onPushError={(m) => floatingCards.pushError(m)}
-          onPushThought={(t) => floatingCards.pushThought(t)}
-          onOpenExplorer={(p) => openExplorer(p, 'internal')}
+          activeCardCount={floatingCards.cards.length}
+          onDismissAllCards={() => floatingCards.dismissAll()}
         />
 
-        {/* Taskbar */}
+        {/* Taskbar with radial menu */}
         <DesktopTaskbar
           brainMode={brainMode}
           isAutonomous={isAutonomousMode}
@@ -324,10 +376,12 @@ function DesktopWidgetShellInner() {
           windows={cogWindows.windows}
           onFocusWindow={cogWindows.focus}
           onMinimizeWindow={cogWindows.minimize}
-          startMenuItems={startMenuItems}
+          radialItems={radialItems}
+          onToggleCommandBar={toggleCommandBar}
+          onTogglePanel={() => setPanelCollapsed(prev => !prev)}
         />
 
-        {/* Command Bar — hidden by default, Ctrl+K to show */}
+        {/* Command Bar */}
         <DesktopCommandBar
           onSend={handleSend}
           onConfirmAction={confirmAction}
@@ -343,19 +397,22 @@ function DesktopWidgetShellInner() {
           visible={commandBarVisible}
           onToggleVisible={toggleCommandBar}
         />
+
+        {/* Desktop context menu */}
+        <CogContextMenu
+          open={desktopCtxMenu.menu.open}
+          x={desktopCtxMenu.menu.x}
+          y={desktopCtxMenu.menu.y}
+          items={desktopCtxMenu.menu.items}
+          onClose={desktopCtxMenu.close}
+        />
       </>
     </MotionConfig>
   );
 }
 
-/**
- * FileExplorerEmbedded — FileExplorer sans WindowFrame propre (CogWindow gère le chrome)
- */
 const FileExplorerEmbedded = memo(function FileExplorerEmbedded({
-  initialPath,
-  openSource,
-  openToken,
-  onClose,
+  initialPath, openSource, openToken, onClose,
 }: {
   initialPath?: string;
   openSource: 'shell' | 'widget' | 'internal';
@@ -396,8 +453,7 @@ import type { FileEntity } from '@/types/explorer.types';
 import { QUICK_ACCESS_PATHS } from '@/types/explorer.types';
 
 const FileExplorerInner = memo(function FileExplorerInner({
-  initialPath,
-  openToken,
+  initialPath, openToken,
 }: {
   initialPath?: string;
   openSource: string;
@@ -531,19 +587,13 @@ const FileExplorerInner = memo(function FileExplorerInner({
 
 export function DesktopWidgetShell() {
   const [booting, setBooting] = useState(true);
+  const wallpaper = useWallpaper();
   return (
     <NotificationProvider>
       {booting && <LoadingScreen onComplete={() => setBooting(false)} minDuration={2500} />}
-      {/* Immersive desktop — same background as web body CSS */}
       <div
         className="fixed inset-0"
-        style={{
-          background: `
-            radial-gradient(ellipse 80% 50% at 50% -20%, hsl(187 85% 53% / 0.08), transparent),
-            radial-gradient(ellipse 60% 40% at 80% 100%, hsl(270 80% 65% / 0.05), transparent),
-            hsl(220 20% 4%)
-          `,
-        }}
+        style={{ background: wallpaper.background }}
       >
         {!booting && <DesktopWidgetShellInner />}
       </div>
