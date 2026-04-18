@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, type MouseEvent } from 'react';
+import { useState, useRef, useEffect, type MouseEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { StateIndicator } from '@/components/cognitive/StateIndicator';
@@ -22,46 +22,45 @@ interface DesktopCommandBarProps {
   onToggleVisible: () => void;
 }
 
+const POS_KEY = 'desktop:commandbar:position:v1';
+
+interface Position { x: number; y: number }
+
+function loadPosition(): Position | null {
+  try {
+    const raw = localStorage.getItem(POS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+function savePosition(p: Position) {
+  try { localStorage.setItem(POS_KEY, JSON.stringify(p)); } catch {}
+}
+
 /**
- * DesktopCommandBar — Barre de saisie fixe en bas-centre
- * Cachée par défaut, activée par Ctrl+K
+ * DesktopCommandBar — Draggable AI Terminal. Hidden by default, Ctrl+K toggles.
  */
 export function DesktopCommandBar({
-  onSend,
-  onConfirmAction,
-  isLoading,
-  isStreaming,
-  error,
-  pendingAction,
-  aiProvider,
-  aiModel,
-  isLocalFallback,
-  brainMode,
-  messageCount,
-  onMouseStateChange,
-  visible,
-  onToggleVisible,
+  onSend, onConfirmAction, isLoading, isStreaming, error, pendingAction,
+  aiProvider, aiModel, isLocalFallback, brainMode, messageCount,
+  onMouseStateChange, visible, onToggleVisible,
 }: DesktopCommandBarProps) {
   const [input, setInput] = useState('');
+  const [position, setPosition] = useState<Position | null>(() => loadPosition());
   const inputRef = useRef<HTMLInputElement>(null);
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
-  // Focus input when bar becomes visible
   useEffect(() => {
-    if (visible) {
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
+    if (visible) requestAnimationFrame(() => inputRef.current?.focus());
   }, [visible]);
 
-  // Global Ctrl+K handler
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
         onToggleVisible();
       }
-      if (e.key === 'Escape' && visible) {
-        onToggleVisible();
-      }
+      if (e.key === 'Escape' && visible) onToggleVisible();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -70,12 +69,8 @@ export function DesktopCommandBar({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-
-    if (pendingAction) {
-      onConfirmAction(input.trim());
-    } else {
-      onSend(input.trim());
-    }
+    if (pendingAction) onConfirmAction(input.trim());
+    else onSend(input.trim());
     setInput('');
   };
 
@@ -94,6 +89,38 @@ export function DesktopCommandBar({
     return modelName || aiProvider.toUpperCase();
   };
 
+  const handleDragStart = (e: MouseEvent) => {
+    if ((e.target as HTMLElement).closest('input, button')) return;
+    e.preventDefault();
+    const W = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const H = typeof window !== 'undefined' ? window.innerHeight : 720;
+    const cur = position ?? { x: (W - 560) / 2, y: H - 100 };
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: cur.x, origY: cur.y };
+
+    const onMove = (ev: globalThis.MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      const next = {
+        x: Math.max(0, Math.min(W - 560, dragRef.current.origX + dx)),
+        y: Math.max(0, Math.min(H - 60, dragRef.current.origY + dy)),
+      };
+      setPosition(next);
+    };
+    const onUp = () => {
+      if (position) savePosition(position);
+      dragRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const positionStyle = position
+    ? { left: position.x, top: position.y, transform: 'none' as const }
+    : { left: '50%', bottom: '24px', transform: 'translateX(-50%)' as const };
+
   return (
     <AnimatePresence>
       {visible && (
@@ -102,17 +129,28 @@ export function DesktopCommandBar({
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 30 }}
           transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50"
+          className="fixed z-50"
+          style={positionStyle}
           onMouseEnter={() => onMouseStateChange?.(true)}
           onMouseLeave={() => onMouseStateChange?.(false)}
         >
+          {/* Drag handle bar at top */}
+          <div
+            onMouseDown={handleDragStart}
+            className="h-3 w-[560px] bg-intent-primary/15 hover:bg-intent-primary/30 cursor-grab active:cursor-grabbing transition-colors flex items-center justify-center gap-1"
+            style={{ clipPath: 'polygon(16px 0, calc(100% - 16px) 0, 100% 100%, 0 100%)' }}
+            title="Glissez pour déplacer · Ctrl+K"
+          >
+            <span className="w-6 h-0.5 bg-intent-primary/60" />
+            <span className="w-2 h-0.5 bg-intent-primary/60" />
+          </div>
+
           <div
             className="relative w-[560px] bg-surface-deep/95 backdrop-blur-2xl border border-intent-primary/20"
             style={{
               clipPath: 'polygon(16px 0%, calc(100% - 4px) 0%, 100% 4px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 4px 100%, 0% calc(100% - 4px), 0% 16px)',
             }}
           >
-            {/* Grid pattern */}
             <div
               className="absolute inset-0 opacity-[0.02] pointer-events-none"
               style={{
@@ -124,11 +162,9 @@ export function DesktopCommandBar({
               }}
             />
 
-            {/* Input form */}
             <form onSubmit={handleSubmit}>
               <div className="relative z-10 flex items-center gap-2 px-4 py-3">
                 <StateIndicator mode={getIndicatorMode()} size="sm" />
-
                 <input
                   ref={inputRef}
                   type="text"
@@ -141,12 +177,8 @@ export function DesktopCommandBar({
                     'text-sm font-light tracking-wide outline-none',
                   )}
                 />
-
-                {/* Status chips */}
                 <div className="flex items-center gap-2 text-[7px] text-text-ghost font-mono tracking-wider">
-                  {brainMode && (
-                    <span className="text-intent-primary">{brainMode}</span>
-                  )}
+                  {brainMode && <span className="text-intent-primary">{brainMode}</span>}
                   {aiProvider && (
                     <span className={isLocalFallback ? 'text-intent-focus' : 'text-intent-secondary'}>
                       {getProviderDisplay()}
@@ -154,7 +186,6 @@ export function DesktopCommandBar({
                   )}
                   <span>#{messageCount}</span>
                 </div>
-
                 <button
                   type="submit"
                   disabled={isLoading || !input.trim()}
@@ -172,48 +203,13 @@ export function DesktopCommandBar({
               </div>
             </form>
 
-            {/* Scan line */}
             <motion.div
               className="absolute inset-x-0 h-px pointer-events-none"
-              style={{
-                background: 'linear-gradient(90deg, transparent, hsl(187 100% 60% / 0.3), transparent)',
-              }}
+              style={{ background: 'linear-gradient(90deg, transparent, hsl(187 100% 60% / 0.3), transparent)' }}
               animate={{ top: ['0%', '100%'] }}
               transition={{ duration: 6, repeat: Infinity, ease: 'linear' }}
             />
           </div>
-
-          {/* Border edges */}
-          <div
-            className="absolute top-0 left-[20px] right-[8px] h-px"
-            style={{ background: 'linear-gradient(90deg, hsl(187 100% 60% / 0.7), hsl(187 85% 35% / 0.2))' }}
-          />
-          <div
-            className="absolute bottom-0 left-[8px] right-[20px] h-px"
-            style={{ background: 'linear-gradient(90deg, hsl(187 85% 35% / 0.2), hsl(187 100% 60% / 0.5))' }}
-          />
-
-          {/* Corner accents */}
-          <motion.div
-            className="absolute -top-px -left-px"
-            animate={{ opacity: [0.5, 0.9, 0.5] }}
-            transition={{ duration: 3, repeat: Infinity }}
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18">
-              <line x1="0" y1="16" x2="16" y2="0" stroke="hsl(187, 100%, 60%)" strokeWidth="1" />
-              <circle cx="14" cy="2" r="1.5" fill="hsl(187, 100%, 60%)" />
-            </svg>
-          </motion.div>
-          <motion.div
-            className="absolute -bottom-px -right-px"
-            animate={{ opacity: [0.5, 0.9, 0.5] }}
-            transition={{ duration: 3, repeat: Infinity, delay: 1.5 }}
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18">
-              <line x1="2" y1="18" x2="18" y2="2" stroke="hsl(187, 100%, 60%)" strokeWidth="1" />
-              <circle cx="4" cy="16" r="1.5" fill="hsl(187, 100%, 60%)" />
-            </svg>
-          </motion.div>
         </motion.div>
       )}
     </AnimatePresence>

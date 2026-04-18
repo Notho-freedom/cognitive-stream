@@ -1,4 +1,4 @@
-import { useState, useCallback, createContext, useContext, ReactNode, useEffect } from 'react';
+import { useState, useCallback, createContext, useContext, ReactNode, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FuturisticFrame } from './FuturisticFrame';
 
@@ -23,6 +23,7 @@ interface NotificationContextType {
   push: (notification: Omit<CognitiveNotification, 'id' | 'timestamp'>) => string;
   dismiss: (id: string) => void;
   clear: () => void;
+  history?: CognitiveNotification[];
 }
 
 // Context
@@ -47,42 +48,62 @@ const PRIORITY_CONFIG: Record<NotificationPriority, {
   critical: { variant: 'primary', defaultTTL: 8500, maxVisible: 4, zBoost: 30 },
 };
 
+// Absolute max lifetime even for high/critical "manual" notifications
+const ABSOLUTE_MAX_TTL = 60_000;
+
 // Provider
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<CognitiveNotification[]>([]);
+  const [history, setHistory] = useState<CognitiveNotification[]>([]);
+  const safetyTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  const dismiss = useCallback((id: string) => {
+    const t = safetyTimers.current.get(id);
+    if (t) { clearTimeout(t); safetyTimers.current.delete(id); }
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  }, []);
 
   const push = useCallback((notif: Omit<CognitiveNotification, 'id' | 'timestamp'>) => {
     const id = `notif-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const config = PRIORITY_CONFIG[notif.priority];
-    
+    // Cap TTL: never exceed absolute max
+    const requestedTtl = notif.ttl === undefined ? config.defaultTTL : notif.ttl;
+    const cappedTtl = requestedTtl > 0 ? Math.min(requestedTtl, ABSOLUTE_MAX_TTL) : 0;
+
     const newNotification: CognitiveNotification = {
       ...notif,
       id,
       timestamp: Date.now(),
-      ttl: notif.ttl === undefined ? config.defaultTTL : notif.ttl,
+      ttl: cappedTtl,
       dismissible: notif.dismissible ?? true,
     };
 
     setNotifications(prev => {
-      // Add to top, most recent first (cascade style)
       const updated = [newNotification, ...prev];
-      // Limit to max visible
       return updated.slice(0, config.maxVisible);
     });
+    setHistory(prev => [newNotification, ...prev].slice(0, 30));
+
+    // Safety timer — guarantees auto-removal even if interval is killed
+    if (cappedTtl > 0) {
+      const t = setTimeout(() => {
+        safetyTimers.current.delete(id);
+        setNotifications(prev => prev.filter(n => n.id !== id));
+      }, cappedTtl + 500);
+      safetyTimers.current.set(id, t);
+    }
 
     return id;
   }, []);
 
-  const dismiss = useCallback((id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-  }, []);
-
   const clear = useCallback(() => {
+    safetyTimers.current.forEach(t => clearTimeout(t));
+    safetyTimers.current.clear();
     setNotifications([]);
   }, []);
 
   return (
-    <NotificationContext.Provider value={{ notifications, push, dismiss, clear }}>
+    <NotificationContext.Provider value={{ notifications, push, dismiss, clear, history } as any}>
       {children}
     </NotificationContext.Provider>
   );

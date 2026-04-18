@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-type SpeechRecognitionType = any;
-
 type SpeechRecognitionResultLike = {
   isFinal: boolean;
   0?: { transcript?: string };
@@ -45,6 +43,10 @@ interface VoiceInputState {
 
 export function useVoiceInput({ onFinalTranscript, language = 'fr-FR' }: VoiceInputOptions) {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  // Stable ref to callback — prevents recognition re-mount loops.
+  const callbackRef = useRef(onFinalTranscript);
+  useEffect(() => { callbackRef.current = onFinalTranscript; }, [onFinalTranscript]);
+
   const [state, setState] = useState<VoiceInputState>({
     isSupported: false,
     isEnabled: false,
@@ -58,7 +60,7 @@ export function useVoiceInput({ onFinalTranscript, language = 'fr-FR' }: VoiceIn
       | SpeechRecognitionConstructor
       | undefined;
     if (!Recognition) {
-      setState(prev => ({ ...prev, isSupported: false }));
+      setState(prev => (prev.isSupported ? { ...prev, isSupported: false } : prev));
       return;
     }
 
@@ -67,44 +69,34 @@ export function useVoiceInput({ onFinalTranscript, language = 'fr-FR' }: VoiceIn
     recognition.interimResults = true;
     recognition.lang = language;
 
-    recognition.onstart = () => {
-      setState(prev => ({ ...prev, isListening: true, error: null }));
-    };
-    recognition.onend = () => {
-      setState(prev => ({ ...prev, isListening: false }));
-    };
-    recognition.onerror = (event) => {
-      setState(prev => ({
-        ...prev,
-        error: event.error || 'Speech recognition error',
-        isListening: false,
-      }));
-    };
+    recognition.onstart = () => setState(prev => ({ ...prev, isListening: true, error: null }));
+    recognition.onend = () => setState(prev => ({ ...prev, isListening: false }));
+    recognition.onerror = (event) => setState(prev => ({
+      ...prev,
+      error: event.error || 'Speech recognition error',
+      isListening: false,
+    }));
     recognition.onresult = (event) => {
       let finalTranscript = '';
-
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
-        if (result.isFinal) {
-          finalTranscript += result[0]?.transcript || '';
-        }
+        if (result.isFinal) finalTranscript += result[0]?.transcript || '';
       }
-
       if (finalTranscript.trim()) {
         const cleaned = finalTranscript.trim();
         setState(prev => ({ ...prev, lastTranscript: cleaned }));
-        onFinalTranscript(cleaned);
+        callbackRef.current(cleaned);
       }
     };
 
     recognitionRef.current = recognition;
-    setState(prev => ({ ...prev, isSupported: true }));
+    setState(prev => (prev.isSupported ? prev : { ...prev, isSupported: true }));
 
     return () => {
-      recognition.stop();
+      try { recognition.stop(); } catch {}
       recognitionRef.current = null;
     };
-  }, [language, onFinalTranscript]);
+  }, [language]);
 
   const start = useCallback(() => {
     if (!recognitionRef.current) return;
@@ -120,22 +112,13 @@ export function useVoiceInput({ onFinalTranscript, language = 'fr-FR' }: VoiceIn
   }, []);
 
   const stop = useCallback(() => {
-    recognitionRef.current?.stop();
+    try { recognitionRef.current?.stop(); } catch {}
     setState(prev => ({ ...prev, isEnabled: false, isListening: false }));
   }, []);
 
   const setEnabled = useCallback((value: boolean) => {
-    if (value) {
-      start();
-    } else {
-      stop();
-    }
+    if (value) start(); else stop();
   }, [start, stop]);
 
-  return {
-    ...state,
-    start,
-    stop,
-    setEnabled,
-  };
+  return { ...state, start, stop, setEnabled };
 }
