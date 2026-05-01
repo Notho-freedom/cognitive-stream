@@ -588,12 +588,10 @@ const FileExplorerInner = memo(function FileExplorerInner({
 export function DesktopWidgetShell() {
   const [booting, setBooting] = useState(true);
   return (
-    <SettingsProvider>
-      <NotificationProvider>
-        {booting && <LoadingScreen onComplete={() => setBooting(false)} minDuration={2500} />}
-        <DesktopBackground booting={booting} />
-      </NotificationProvider>
-    </SettingsProvider>
+    <NotificationProvider>
+      {booting && <LoadingScreen onComplete={() => setBooting(false)} minDuration={2500} />}
+      <DesktopBackground booting={booting} />
+    </NotificationProvider>
   );
 }
 
