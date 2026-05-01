@@ -14,9 +14,10 @@ import { useSystemBridge } from '@/hooks/useSystemBridge';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useDesktopIcons } from '@/hooks/useDesktopIcons';
 import { useCogWindowManager } from '@/hooks/useCogWindowManager';
-import { useIconScale } from '@/hooks/useIconScale';
-import { useWallpaper } from '@/hooks/useWallpaper';
 import { useContextMenu } from '@/hooks/useContextMenu';
+import { useSettings, SettingsProvider, getWallpaperBackground } from '@/hooks/useSettings';
+import { useFocusManager } from '@/hooks/useFocusManager';
+import { useStableCallback } from '@/hooks/useStableCallback';
 import { AutonomyConfirmDialog } from '@/components/cognitive/AutonomyConfirmDialog';
 import { AutonomyQuestionDialog } from '@/components/cognitive/AutonomyQuestionDialog';
 import { DesktopTaskbar } from './DesktopTaskbar';
@@ -44,13 +45,13 @@ const TASKBAR_HEIGHT = 44;
 
 function DesktopWidgetShellInner() {
   const { push: notifyPush } = useNotifications();
+  const { settings, update } = useSettings();
   const brain = useCognitiveBrain(notifyPush);
-  const { play: playSound, setEnabled: setSoundEnabled, isEnabled: isSoundEnabled } = useSoundEffects();
+  const { play: playSound, setEnabled: setSoundEnabled } = useSoundEffects();
   const floatingCards = useFloatingCards();
   const cogWindows = useCogWindowManager();
-  const { scale: iconScale } = useIconScale();
-  const wallpaper = useWallpaper();
   const desktopCtxMenu = useContextMenu();
+  const focusManager = useFocusManager();
   const navigate = useNavigate();
 
   const activeSchemaCardIdRef = useRef<string | null>(null);
@@ -58,12 +59,11 @@ function DesktopWidgetShellInner() {
   const [explorerPath, setExplorerPath] = useState<string | undefined>();
   const [explorerOpenSource, setExplorerOpenSource] = useState<'shell' | 'widget' | 'internal'>('internal');
   const [explorerOpenToken, setExplorerOpenToken] = useState(0);
-  const [surfaceOpacity, setSurfaceOpacity] = useState(0.85);
-  const [reduceMotion, setReduceMotion] = useState(false);
-  const [soundsEnabled, setSoundsEnabled] = useState(isSoundEnabled());
   const [commandBarVisible, setCommandBarVisible] = useState(false);
-  const [explorerTakeoverEnabled, setExplorerTakeoverEnabled] = useState(true);
   const [explorerTakeoverState, setExplorerTakeoverState] = useState<'native' | 'armed' | 'restoring' | 'degraded'>('native');
+
+  // Sync sound state from settings
+  useEffect(() => { setSoundEnabled(settings.soundsEnabled); }, [settings.soundsEnabled, setSoundEnabled]);
 
   const {
     isAvailable: isElectronBridgeAvailable,
@@ -83,15 +83,15 @@ function DesktopWidgetShellInner() {
     sendMessage, handleAction, confirmAction, respondToConfirmation, respondToQuestion,
   } = brain;
 
-  const tts = useCognitiveEdgeTTS({ autoPlay: true, maxLength: 500, skipIfSpeaking: true });
+  const tts = useCognitiveEdgeTTS({ autoPlay: settings.ttsEnabled, maxLength: 500, skipIfSpeaking: true });
 
   // Stable ref-based callback for voice input — prevents loop
   const handleSendRef = useRef<(msg: string) => void>(() => {});
   const voiceInput = useVoiceInput({
-    onFinalTranscript: useCallback((text: string) => {
+    onFinalTranscript: useStableCallback((text: string) => {
       const trimmed = text.trim();
       if (trimmed) handleSendRef.current(trimmed);
-    }, []),
+    }),
   });
 
   const brainMode = useMemo(() => {
@@ -154,8 +154,6 @@ function DesktopWidgetShellInner() {
     prevIsLoadingRef.current = isLoading;
   }, [isLoading, playSound]);
 
-  useEffect(() => { setSoundEnabled(soundsEnabled); }, [soundsEnabled, setSoundEnabled]);
-
   useEffect(() => {
     if (!tts.isEnabled || !schema || isStreaming) return;
     if (schema.metadata?.isTransition) return;
@@ -173,23 +171,22 @@ function DesktopWidgetShellInner() {
     sendMessage(msg);
   }, [playSound, sendMessage]);
 
-  // Keep ref in sync for voice input
   useEffect(() => { handleSendRef.current = handleSend; }, [handleSend]);
 
-  const handleCardAction = useCallback((action: Parameters<typeof handleAction>[0]) => {
+  const handleCardAction = useStableCallback((action: Parameters<typeof handleAction>[0]) => {
     playSound('action');
     handleAction(action);
-  }, [playSound, handleAction]);
+  });
 
-  const handleDismiss = useCallback((id: string) => {
+  const handleDismiss = useStableCallback((id: string) => {
     playSound('cardDismiss');
     if (activeSchemaCardIdRef.current === id) activeSchemaCardIdRef.current = null;
     floatingCards.dismissCard(id);
-  }, [playSound, floatingCards]);
+  });
 
-  const handlePositionChange = useCallback((id: string, position: { x: number; y: number }) => {
+  const handlePositionChange = useStableCallback((id: string, position: { x: number; y: number }) => {
     floatingCards.updateCard(id, { position });
-  }, [floatingCards]);
+  });
 
   const openExplorer = useCallback((path?: string, source: 'shell' | 'widget' | 'internal' = 'internal') => {
     setExplorerPath(path);
@@ -213,27 +210,48 @@ function DesktopWidgetShellInner() {
   useEffect(() => {
     if (!isElectronBridgeAvailable) return;
     let disposed = false;
-    getExplorerSettingsRef.current().then((settings) => {
+    getExplorerSettingsRef.current().then((s) => {
       if (disposed) return;
-      setExplorerTakeoverEnabled(settings.explorerTakeoverEnabled);
-      setExplorerTakeoverState(settings.explorerTakeoverState);
+      update('explorerTakeoverEnabled', s.explorerTakeoverEnabled);
+      setExplorerTakeoverState(s.explorerTakeoverState);
     });
     const unsubscribe = onExplorerOpenRequestRef.current(({ path, source }) => {
       openExplorerRef.current(path, source === 'shell' ? 'shell' : 'internal');
     });
     notifyExplorerReadyRef.current();
     return () => { disposed = true; unsubscribe?.(); };
-  }, [isElectronBridgeAvailable]);
+  }, [isElectronBridgeAvailable, update]);
 
   const syncExplorerSettings = useCallback(async (updates: Partial<{ explorerTakeoverEnabled: boolean }>) => {
     const next = await setExplorerSettings({
-      explorerTakeoverEnabled: updates.explorerTakeoverEnabled ?? explorerTakeoverEnabled,
+      explorerTakeoverEnabled: updates.explorerTakeoverEnabled ?? settings.explorerTakeoverEnabled,
     });
-    setExplorerTakeoverEnabled(next.explorerTakeoverEnabled);
+    update('explorerTakeoverEnabled', next.explorerTakeoverEnabled);
     setExplorerTakeoverState(next.explorerTakeoverState);
-  }, [explorerTakeoverEnabled, setExplorerSettings]);
+  }, [settings.explorerTakeoverEnabled, setExplorerSettings, update]);
 
   const toggleCommandBar = useCallback(() => setCommandBarVisible(prev => !prev), []);
+
+  // Desktop command system — CommandBar can dispatch these
+  const desktopCommands = useMemo(() => ({
+    'open explorer': () => openExplorer(),
+    'open settings': () => navigate('/settings'),
+    'open tests': () => cogWindows.open('tests', 'PANEL DE TEST', { size: { width: 480, height: 600 } }),
+    'clear': () => floatingCards.dismissAll(),
+    'close all': () => { floatingCards.dismissAll(); cogWindows.windows.forEach(w => cogWindows.close(w.id)); },
+    'focus terminal': () => setCommandBarVisible(true),
+  }), [openExplorer, navigate, cogWindows, floatingCards]);
+
+  const handleCommandSend = useStableCallback((msg: string) => {
+    // Check for desktop commands first
+    const lower = msg.toLowerCase().trim();
+    const cmd = Object.entries(desktopCommands).find(([k]) => lower === k || lower.startsWith(k + ' '));
+    if (cmd) {
+      cmd[1]();
+      return;
+    }
+    handleSend(msg);
+  });
 
   const radialItems = useMemo(() => [
     { label: 'Explorateur', icon: '◇', onClick: () => openExplorer() },
@@ -249,11 +267,14 @@ function DesktopWidgetShellInner() {
     { label: 'Ouvrir explorateur', icon: '◇', onClick: () => openExplorer() },
     { separator: true, label: '', onClick: () => {} },
     { label: 'Terminal IA', icon: '⌘', onClick: () => setCommandBarVisible(true) },
+    { label: 'Nouveau dossier', icon: '+', onClick: () => {} },
+    { separator: true, label: '', onClick: () => {} },
+    { label: 'Trier par nom', icon: 'A', onClick: () => {} },
     { label: 'Personnaliser', icon: '⚙', onClick: () => navigate('/settings') },
   ], [desktopIcons, openExplorer, navigate]);
 
   return (
-    <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
+    <MotionConfig reducedMotion={settings.reduceMotion ? 'always' : 'user'}>
       <>
         <AutonomyConfirmDialog
           open={Boolean(pendingConfirmation)}
@@ -272,7 +293,7 @@ function DesktopWidgetShellInner() {
         <NotificationQueue position="top-right" />
 
         {/* Ambient (particles, scanline, ripples) */}
-        <DesktopAmbient disabled={reduceMotion} />
+        <DesktopAmbient disabled={settings.reduceMotion || !settings.animationsEnabled} />
 
         {/* Desktop icons */}
         <DesktopIconsLayer
@@ -280,7 +301,7 @@ function DesktopWidgetShellInner() {
           iconImages={desktopIcons.iconImages}
           onResolveImage={desktopIcons.setIconImage}
           onOpenFolder={(path) => openExplorer(path, 'widget')}
-          scale={iconScale}
+          scale={settings.iconScale}
           onDesktopContextMenu={(e) => desktopCtxMenu.openMenu(e, desktopMenuItems)}
         />
 
@@ -295,7 +316,7 @@ function DesktopWidgetShellInner() {
                 onAction={handleCardAction}
                 onPositionChange={handlePositionChange}
                 onBringToFront={floatingCards.bringToFront}
-                surfaceOpacity={surfaceOpacity}
+                surfaceOpacity={settings.surfaceOpacity}
               />
             ))}
           </AnimatePresence>
@@ -341,27 +362,6 @@ function DesktopWidgetShellInner() {
         <DesktopSidePanel
           isCollapsed={panelCollapsed}
           onToggleCollapse={() => setPanelCollapsed(prev => !prev)}
-          surfaceOpacity={surfaceOpacity}
-          onSurfaceOpacityChange={setSurfaceOpacity}
-          ttsEnabled={tts.isEnabled}
-          onTtsToggle={tts.setEnabled}
-          voiceInputEnabled={voiceInput.isEnabled}
-          voiceInputSupported={voiceInput.isSupported}
-          onVoiceInputToggle={voiceInput.setEnabled}
-          soundsEnabled={soundsEnabled}
-          onSoundsToggle={setSoundsEnabled}
-          reduceMotion={reduceMotion}
-          onReduceMotionToggle={setReduceMotion}
-          explorerTakeoverEnabled={explorerTakeoverEnabled}
-          onExplorerTakeoverEnabledChange={(value) => {
-            setExplorerTakeoverEnabled(value);
-            void syncExplorerSettings({ explorerTakeoverEnabled: value });
-          }}
-          explorerTakeoverState={explorerTakeoverState}
-          onActivatePerformanceMode={() => {
-            setReduceMotion(true);
-            setSoundsEnabled(false);
-          }}
           activeCardCount={floatingCards.cards.length}
           onDismissAllCards={() => floatingCards.dismissAll()}
         />
@@ -383,7 +383,7 @@ function DesktopWidgetShellInner() {
 
         {/* Command Bar */}
         <DesktopCommandBar
-          onSend={handleSend}
+          onSend={handleCommandSend}
           onConfirmAction={confirmAction}
           isLoading={isLoading}
           isStreaming={isStreaming}
@@ -587,16 +587,22 @@ const FileExplorerInner = memo(function FileExplorerInner({
 
 export function DesktopWidgetShell() {
   const [booting, setBooting] = useState(true);
-  const wallpaper = useWallpaper();
   return (
-    <NotificationProvider>
-      {booting && <LoadingScreen onComplete={() => setBooting(false)} minDuration={2500} />}
-      <div
-        className="fixed inset-0"
-        style={{ background: wallpaper.background }}
-      >
-        {!booting && <DesktopWidgetShellInner />}
-      </div>
-    </NotificationProvider>
+    <SettingsProvider>
+      <NotificationProvider>
+        {booting && <LoadingScreen onComplete={() => setBooting(false)} minDuration={2500} />}
+        <DesktopBackground booting={booting} />
+      </NotificationProvider>
+    </SettingsProvider>
+  );
+}
+
+function DesktopBackground({ booting }: { booting: boolean }) {
+  const { settings } = useSettings();
+  const bg = getWallpaperBackground(settings);
+  return (
+    <div className="fixed inset-0" style={{ background: bg }}>
+      {!booting && <DesktopWidgetShellInner />}
+    </div>
   );
 }
