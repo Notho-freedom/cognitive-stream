@@ -5,6 +5,8 @@ import { FuturisticFrame } from '@/components/cognitive/FuturisticFrame';
 import { ThoughtStream } from '@/components/cognitive/ThoughtStream';
 import { CognitiveRenderer } from '@/components/cognitive/dynamic/CognitiveRenderer';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { CogContextMenu } from './CogContextMenu';
+import { useContextMenu } from '@/hooks/useContextMenu';
 import type { CognitiveUISchema, ActionPayload } from '@/components/cognitive/dynamic/types';
 
 export interface FloatingCard {
