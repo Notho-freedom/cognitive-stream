@@ -1,9 +1,18 @@
-import { useState, useRef, useEffect, type MouseEvent } from 'react';
+import { useState, useRef, useEffect, useMemo, type MouseEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { StateIndicator } from '@/components/cognitive/StateIndicator';
 import type { IndicatorMode } from '@/components/cognitive/StateIndicator';
 import type { ActionPayload } from '@/components/cognitive/dynamic/types';
+
+const DESKTOP_COMMANDS = [
+  { cmd: 'open explorer', desc: 'Ouvrir l\'explorateur' },
+  { cmd: 'open settings', desc: 'Ouvrir les paramètres' },
+  { cmd: 'open tests', desc: 'Panel de tests cognitifs' },
+  { cmd: 'clear', desc: 'Fermer toutes les cartes' },
+  { cmd: 'close all', desc: 'Tout fermer (cartes + fenêtres)' },
+  { cmd: 'focus terminal', desc: 'Focus sur le terminal' },
+];
 
 interface DesktopCommandBarProps {
   onSend: (message: string) => void;
@@ -49,6 +58,12 @@ export function DesktopCommandBar({
   const [position, setPosition] = useState<Position | null>(() => loadPosition());
   const inputRef = useRef<HTMLInputElement>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+
+  const suggestions = useMemo(() => {
+    if (!input.trim()) return [];
+    const lower = input.toLowerCase().trim();
+    return DESKTOP_COMMANDS.filter(c => c.cmd.startsWith(lower) && c.cmd !== lower);
+  }, [input]);
 
   useEffect(() => {
     if (visible) requestAnimationFrame(() => inputRef.current?.focus());

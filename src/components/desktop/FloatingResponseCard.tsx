@@ -5,6 +5,8 @@ import { FuturisticFrame } from '@/components/cognitive/FuturisticFrame';
 import { ThoughtStream } from '@/components/cognitive/ThoughtStream';
 import { CognitiveRenderer } from '@/components/cognitive/dynamic/CognitiveRenderer';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { CogContextMenu } from './CogContextMenu';
+import { useContextMenu } from '@/hooks/useContextMenu';
 import type { CognitiveUISchema, ActionPayload } from '@/components/cognitive/dynamic/types';
 
 export interface FloatingCard {
@@ -56,6 +58,22 @@ export const FloatingResponseCard = memo(function FloatingResponseCard({
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const rafRef = useRef<number | null>(null);
   const pendingPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const ctx = useContextMenu();
+
+  const cardContextMenuItems = [
+    { label: 'Copier le contenu', icon: '⧉', onClick: () => {
+      const text = card.text || card.error || (card.schema ? JSON.stringify(card.schema, null, 2) : '');
+      navigator.clipboard?.writeText(text);
+    }},
+    { label: 'Exporter JSON', icon: '↓', onClick: () => {
+      const blob = new Blob([JSON.stringify(card, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `card-${card.id}.json`; a.click();
+      URL.revokeObjectURL(url);
+    }},
+    { separator: true, label: '', onClick: () => {} },
+    { label: 'Fermer', icon: '✕', danger: true, onClick: () => onDismiss(card.id) },
+  ];
 
   // Mark complete immediately if no streaming text
   useEffect(() => {
@@ -145,6 +163,7 @@ export const FloatingResponseCard = memo(function FloatingResponseCard({
       style={{ left: card.position.x, top: card.position.y, zIndex: card.zIndex }}
       onMouseEnter={() => { setIsHovered(true); onMouseStateChange?.(true); }}
       onMouseLeave={() => { setIsHovered(false); onMouseStateChange?.(false); }}
+      onContextMenu={(e) => { e.preventDefault(); ctx.openMenu(e as any, cardContextMenuItems); }}
     >
       <div className={cn(
         'relative',
@@ -216,6 +235,7 @@ export const FloatingResponseCard = memo(function FloatingResponseCard({
           </div>
         </FuturisticFrame>
       </div>
+      <CogContextMenu open={ctx.menu.open} x={ctx.menu.x} y={ctx.menu.y} items={ctx.menu.items} onClose={ctx.close} />
     </motion.div>
   );
 });
