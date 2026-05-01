@@ -235,6 +235,7 @@ export const FloatingResponseCard = memo(function FloatingResponseCard({
           </div>
         </FuturisticFrame>
       </div>
+      <CogContextMenu open={ctx.menu.open} x={ctx.menu.x} y={ctx.menu.y} items={ctx.menu.items} onClose={ctx.close} />
     </motion.div>
   );
 });
