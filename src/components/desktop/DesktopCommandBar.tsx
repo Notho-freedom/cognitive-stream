@@ -59,6 +59,12 @@ export function DesktopCommandBar({
   const inputRef = useRef<HTMLInputElement>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
+  const suggestions = useMemo(() => {
+    if (!input.trim()) return [];
+    const lower = input.toLowerCase().trim();
+    return DESKTOP_COMMANDS.filter(c => c.cmd.startsWith(lower) && c.cmd !== lower);
+  }, [input]);
+
   useEffect(() => {
     if (visible) requestAnimationFrame(() => inputRef.current?.focus());
   }, [visible]);
