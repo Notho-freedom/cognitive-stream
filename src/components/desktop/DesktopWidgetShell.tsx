@@ -15,7 +15,7 @@ import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useDesktopIcons } from '@/hooks/useDesktopIcons';
 import { useCogWindowManager } from '@/hooks/useCogWindowManager';
 import { useContextMenu } from '@/hooks/useContextMenu';
-import { useSettings, SettingsProvider, getWallpaperBackground } from '@/hooks/useSettings';
+import { useSettings, getWallpaperBackground } from '@/hooks/useSettings';
 import { useFocusManager } from '@/hooks/useFocusManager';
 import { useStableCallback } from '@/hooks/useStableCallback';
 import { AutonomyConfirmDialog } from '@/components/cognitive/AutonomyConfirmDialog';
