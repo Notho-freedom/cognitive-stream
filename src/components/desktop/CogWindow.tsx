@@ -2,6 +2,8 @@ import { useCallback, useRef, memo, type ReactNode, type MouseEvent } from 'reac
 import { motion, AnimatePresence } from 'framer-motion';
 import { Minus, Maximize2, X } from 'lucide-react';
 import { FuturisticFrame } from '@/components/cognitive/FuturisticFrame';
+import { CogContextMenu } from './CogContextMenu';
+import { useContextMenu } from '@/hooks/useContextMenu';
 import { cn } from '@/lib/utils';
 import type { CogWindowState } from '@/hooks/useCogWindowManager';
 
@@ -26,6 +28,14 @@ export const CogWindow = memo(function CogWindow({
 }: CogWindowProps) {
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const rafRef = useRef<number | null>(null);
+  const ctx = useContextMenu();
+
+  const windowContextItems = [
+    { label: win.minimized ? 'Restaurer' : 'Réduire', icon: '−', onClick: () => onMinimize(win.id) },
+    { label: win.maximized ? 'Restaurer' : 'Maximiser', icon: '□', onClick: () => onMaximize(win.id) },
+    { separator: true, label: '', onClick: () => {} },
+    { label: 'Fermer', icon: '✕', danger: true, onClick: () => onClose(win.id) },
+  ];
 
   const handleDragStart = useCallback((e: MouseEvent) => {
     if ((e.target as HTMLElement).closest('button')) return;
@@ -93,10 +103,11 @@ export const CogWindow = memo(function CogWindow({
         gridOpacity={0.015}
       >
         <div className="flex flex-col h-full">
-          {/* Title bar — draggable */}
+          {/* Title bar — draggable + context menu */}
           <div
             className="flex items-center justify-between px-4 py-2 border-b border-intent-primary/15 cursor-grab select-none"
             onMouseDown={handleDragStart}
+            onContextMenu={(e) => { e.preventDefault(); ctx.openMenu(e as any, windowContextItems); }}
           >
             <div className="flex items-center gap-2">
               <div className={cn(
@@ -133,6 +144,7 @@ export const CogWindow = memo(function CogWindow({
           )}
         </div>
       </FuturisticFrame>
+      <CogContextMenu open={ctx.menu.open} x={ctx.menu.x} y={ctx.menu.y} items={ctx.menu.items} onClose={ctx.close} />
     </motion.div>
   );
 });
