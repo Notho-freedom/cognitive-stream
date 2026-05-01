@@ -163,6 +163,7 @@ export const FloatingResponseCard = memo(function FloatingResponseCard({
       style={{ left: card.position.x, top: card.position.y, zIndex: card.zIndex }}
       onMouseEnter={() => { setIsHovered(true); onMouseStateChange?.(true); }}
       onMouseLeave={() => { setIsHovered(false); onMouseStateChange?.(false); }}
+      onContextMenu={(e) => { e.preventDefault(); ctx.openMenu(e as any, cardContextMenuItems); }}
     >
       <div className={cn(
         'relative',
