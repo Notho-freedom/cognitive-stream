@@ -97,6 +97,24 @@ function emitDirectoryWatchEvent(ownerId, payload) {
   }
 }
 
+function getMainWindowWebContents() {
+  if (!mainWindow) return null;
+  let contents = null;
+  try {
+    contents = mainWindow.webContents;
+  } catch {
+    return null;
+  }
+  if (!contents || contents.isDestroyed()) return null;
+  return contents;
+}
+
+function safeSendToMainWindow(channel, payload) {
+  const contents = getMainWindowWebContents();
+  if (!contents) return;
+  contents.send(channel, payload);
+}
+
 function getExplorerSettingsDefaults() {
   return {
     ...EXPLORER_SETTINGS_DEFAULTS,
@@ -196,6 +214,7 @@ function resolveWindowsShortcut(filePath) {
 let mainWindow;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+const shouldOpenDevTools = process.env.ELECTRON_OPEN_DEVTOOLS === '1';
 
 function runPowerShell(script, options = {}) {
   return execFileSync(
@@ -300,13 +319,13 @@ function enqueueExplorerOpen(targetPath, source = 'shell') {
 }
 
 function flushExplorerOpenQueue() {
-  if (!mainWindow || !rendererExplorerChannelReady || pendingExplorerOpenRequests.length === 0) {
+  if (!rendererExplorerChannelReady || pendingExplorerOpenRequests.length === 0) {
     return;
   }
 
   while (pendingExplorerOpenRequests.length > 0) {
     const payload = pendingExplorerOpenRequests.shift();
-    mainWindow.webContents.send('explorer:open-request', payload);
+    safeSendToMainWindow('explorer:open-request', payload);
   }
 }
 
@@ -992,19 +1011,22 @@ function createWindow() {
     },
     titleBarStyle: 'hidden',
   });
+  const mainWindowOwnerId = mainWindow.webContents.id;
 
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setFullScreen(true);
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:8080?time=' + new Date().getTime());
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    if (shouldOpenDevTools) {
+      mainWindow.webContents.openDevTools({ mode: 'detach' });
+    }
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
   mainWindow.on('closed', () => {
-    stopDirectoryWatchersForOwner(mainWindow?.webContents.id);
+    stopDirectoryWatchersForOwner(mainWindowOwnerId);
     rendererExplorerChannelReady = false;
     mainWindow = null;
   });
@@ -1091,7 +1113,10 @@ if (hasSingleInstanceLock) {
   });
 
   app.on('window-all-closed', () => {
-    stopDirectoryWatchersForOwner(mainWindow?.webContents.id);
+    const ownerId = getMainWindowWebContents()?.id;
+    if (ownerId) {
+      stopDirectoryWatchersForOwner(ownerId);
+    }
     if (process.platform !== 'darwin') {
       app.quit();
     }
@@ -1278,7 +1303,7 @@ ipcMain.handle('system:spawn', async (event, command, args = [], options = {}) =
 
     child.stdout.on('data', (data) => {
       stdout += data.toString();
-      mainWindow?.webContents.send('system:output', {
+      safeSendToMainWindow('system:output', {
         type: 'stdout',
         data: data.toString(),
         pid: child.pid,
@@ -1287,7 +1312,7 @@ ipcMain.handle('system:spawn', async (event, command, args = [], options = {}) =
 
     child.stderr.on('data', (data) => {
       stderr += data.toString();
-      mainWindow?.webContents.send('system:output', {
+      safeSendToMainWindow('system:output', {
         type: 'stderr',
         data: data.toString(),
         pid: child.pid,
