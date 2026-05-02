@@ -1,4 +1,4 @@
-import { useState, useEffect, memo, useRef } from 'react';
+import { memo, useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useSystemBridge } from '@/hooks/useSystemBridge';
@@ -17,18 +17,20 @@ interface DesktopTaskbarProps {
   onCloseWindow?: (id: string) => void;
   radialItems: RadialItem[];
   onToggleCommandBar: () => void;
-  onTogglePanel: () => void;
+  isLoading?: boolean;
+  isStreaming?: boolean;
 }
 
 export const DesktopTaskbar = memo(function DesktopTaskbar({
   brainMode, isAutonomous, autonomyCount, autonomyLimit, activeTasks,
-  windows, onFocusWindow, onMinimizeWindow, radialItems,
-  onToggleCommandBar, onTogglePanel,
+  windows, onFocusWindow, onMinimizeWindow, onCloseWindow, radialItems,
+  onToggleCommandBar, isLoading, isStreaming,
 }: DesktopTaskbarProps) {
   const { isAvailable, systemInfo } = useSystemBridge();
   const [time, setTime] = useState(() => new Date());
   const [radial, setRadial] = useState<{ open: boolean; x: number; y: number }>({ open: false, x: 0, y: 0 });
   const startBtnRef = useRef<HTMLButtonElement>(null);
+  const [hoverDock, setHoverDock] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => setTime(new Date()), 1000);
@@ -38,140 +40,139 @@ export const DesktopTaskbar = memo(function DesktopTaskbar({
   const openRadial = () => {
     if (!startBtnRef.current) return;
     const r = startBtnRef.current.getBoundingClientRect();
-    setRadial({ open: true, x: r.left + r.width / 2, y: r.top - 6 });
+    setRadial({ open: true, x: r.left + r.width / 2, y: r.top - 8 });
   };
+
+  const brainActive = isLoading || isStreaming;
 
   return (
     <>
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
+        initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-        className="fixed bottom-0 left-0 right-0 z-50 pointer-events-auto h-[44px]"
+        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1], delay: 0.3 }}
+        className="fixed bottom-0 left-0 right-0 z-50 pointer-events-auto flex justify-center pb-2 px-2"
       >
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-intent-primary/40 to-transparent" />
+        {/* Dock container - centered, auto-width */}
         <motion.div
-          className="absolute top-0 left-0 right-0 h-[1px] bg-intent-primary/20 pointer-events-none"
-          animate={{ opacity: [0.2, 0.5, 0.2] }}
-          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-        />
+          className="relative flex items-end gap-0.5 px-3 py-1.5 rounded-2xl"
+          onMouseEnter={() => setHoverDock(true)}
+          onMouseLeave={() => setHoverDock(false)}
+          style={{
+            background: 'hsl(220 20% 8% / 0.72)',
+            backdropFilter: 'blur(24px) saturate(1.5)',
+            border: '1px solid hsl(187 85% 53% / 0.12)',
+            boxShadow: '0 8px 32px hsl(0 0% 0% / 0.4), inset 0 1px 0 hsl(187 85% 53% / 0.06)',
+          }}
+        >
+          {/* Glow line on top */}
+          <div className="absolute top-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-intent-primary/25 to-transparent" />
 
-        <div className="flex items-center justify-between h-full px-3 bg-surface-deep/95 backdrop-blur-xl border-t border-intent-primary/15">
-          {/* LEFT: Radial trigger + command bar shortcut */}
-          <div className="flex items-center gap-2 min-w-[140px]">
+          {/* Start button */}
+          <DockItem tooltip="Menu" isActive={radial.open}>
             <button
               ref={startBtnRef}
               onClick={openRadial}
-              className={cn(
-                'flex items-center justify-center w-9 h-9 transition-all',
-                'text-intent-primary border border-intent-primary/40 hover:bg-intent-primary/15',
-                radial.open && 'bg-intent-primary/20',
-              )}
-              style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }}
-              aria-label="Menu radial"
-              title="Menu (apps)"
+              className="flex items-center justify-center w-10 h-10 rounded-xl transition-all hover:bg-intent-primary/15 active:scale-90"
             >
-              <span className="text-base font-light">◈</span>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M10 2L18 10L10 18L2 10Z" stroke="hsl(187 85% 53%)" strokeWidth="1.5" fill="hsl(187 85% 53% / 0.1)" />
+                <circle cx="10" cy="10" r="2" fill="hsl(187 85% 53% / 0.6)" />
+              </svg>
             </button>
+          </DockItem>
+
+          {/* Separator */}
+          <div className="w-px h-6 bg-intent-primary/15 mx-1 self-center" />
+
+          {/* Terminal AI button */}
+          <DockItem tooltip="Terminal IA (Ctrl+K)">
             <button
               onClick={onToggleCommandBar}
-              className="flex items-center justify-center w-8 h-8 text-text-ghost hover:text-intent-primary border border-intent-primary/15 hover:border-intent-primary/40 transition-colors"
-              style={{ clipPath: 'polygon(4px 0%, 100% 0%, calc(100% - 4px) 100%, 0% 100%)' }}
-              title="Terminal IA (Ctrl+K)"
+              className="flex items-center justify-center w-10 h-10 rounded-xl transition-all hover:bg-intent-primary/15 active:scale-90"
             >
-              <span className="text-xs font-mono">⌘K</span>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <rect x="1" y="3" width="16" height="12" rx="2" stroke="hsl(187 85% 53% / 0.7)" strokeWidth="1.2" />
+                <path d="M4 8L7 10L4 12" stroke="hsl(187 85% 53%)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                <line x1="9" y1="12" x2="13" y2="12" stroke="hsl(187 85% 53% / 0.5)" strokeWidth="1.2" strokeLinecap="round" />
+              </svg>
             </button>
-            <button
-              onClick={onTogglePanel}
-              className="flex items-center justify-center w-8 h-8 text-text-ghost hover:text-intent-primary border border-intent-primary/15 hover:border-intent-primary/40 transition-colors"
-              style={{ clipPath: 'polygon(4px 0%, 100% 0%, calc(100% - 4px) 100%, 0% 100%)' }}
-              title="Activité"
-            >
-              <span className="text-xs">≡</span>
-            </button>
-          </div>
+          </DockItem>
 
-          {/* CENTER: Open windows dock */}
-          <div className="flex items-center justify-center gap-2 flex-1 overflow-x-auto px-4">
-            {windows.length === 0 && (
-              <div className="text-[8px] uppercase tracking-[0.3em] text-text-ghost/30">
-                · IDLE ·
-              </div>
-            )}
-            {windows.map(win => (
-              <motion.button
-                key={win.id}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
+          {/* Separator before window items */}
+          {windows.length > 0 && (
+            <div className="w-px h-6 bg-intent-primary/15 mx-1 self-center" />
+          )}
+
+          {/* Open windows */}
+          {windows.map(win => (
+            <DockItem key={win.id} tooltip={win.title} isActive={win.focused && !win.minimized}>
+              <button
                 onClick={() => win.minimized ? onFocusWindow(win.id) : (win.focused ? onMinimizeWindow(win.id) : onFocusWindow(win.id))}
                 className={cn(
-                  'relative flex items-center gap-2 px-3 py-1 text-[10px] uppercase tracking-wider transition-all border',
+                  'flex items-center justify-center w-10 h-10 rounded-xl transition-all active:scale-90',
                   win.focused && !win.minimized
-                    ? 'text-intent-primary border-intent-primary bg-intent-primary/10'
-                    : 'text-text-ghost border-intent-primary/15 hover:text-text-primary hover:border-intent-primary/40',
+                    ? 'bg-intent-primary/20 text-intent-primary'
+                    : 'text-text-ghost/70 hover:bg-white/8 hover:text-text-primary',
                 )}
-                style={{ clipPath: 'polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%)' }}
               >
-                <span className={cn(
-                  'w-1 h-1 rounded-full',
-                  win.focused && !win.minimized ? 'bg-intent-primary' : 'bg-text-ghost/40',
-                )} />
-                {win.title}
-                {win.focused && !win.minimized && (
-                  <motion.span
-                    layoutId="taskbar-focus-glow"
-                    className="absolute inset-0 border border-intent-primary/40 pointer-events-none"
-                    style={{ clipPath: 'polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%)' }}
-                  />
-                )}
-              </motion.button>
-            ))}
-          </div>
+                <span className="text-xs font-light tracking-wider uppercase">
+                  {win.title.charAt(0)}
+                </span>
+              </button>
+              {/* Active dot */}
+              {!win.minimized && (
+                <motion.div
+                  className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-intent-primary"
+                  layoutId={`dock-dot-${win.id}`}
+                />
+              )}
+            </DockItem>
+          ))}
 
-          {/* RIGHT: Status + clock */}
-          <div className="flex items-center gap-3 text-[8px] font-mono tracking-wider min-w-[260px] justify-end">
-            <motion.div
-              className={cn('w-1.5 h-1.5 rounded-full', isAvailable ? 'bg-intent-success' : 'bg-text-ghost/40')}
-              animate={isAvailable ? { opacity: [0.6, 1, 0.6] } : {}}
-              transition={{ duration: 2, repeat: Infinity }}
-            />
-            <span className={cn('uppercase', isAvailable ? 'text-intent-success' : 'text-text-ghost')}>
-              {isAvailable ? 'SYSTEM' : 'WEB'}
-            </span>
-            {brainMode && (
-              <>
-                <span className="text-text-ghost/30">|</span>
-                <span className="text-intent-primary">{brainMode}</span>
-              </>
-            )}
-            {isAutonomous && (
-              <>
-                <span className="text-text-ghost/30">|</span>
-                <motion.span className="text-intent-secondary"
-                  animate={{ opacity: [0.6, 1, 0.6] }} transition={{ duration: 1.5, repeat: Infinity }}>
-                  AUTO {autonomyCount}/{autonomyLimit}
-                </motion.span>
-              </>
-            )}
-            {activeTasks > 0 && (
-              <>
-                <span className="text-text-ghost/30">|</span>
-                <span className="text-intent-focus">{activeTasks}T</span>
-              </>
-            )}
-            <span className="text-text-ghost/30">|</span>
-            <span className="uppercase tracking-[0.2em] text-text-ghost/60 hidden md:inline">
-              {isAvailable && systemInfo ? systemInfo.hostname : 'COG'}
-            </span>
-            <span className="text-text-primary tabular-nums text-[10px]">
-              {time.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-            </span>
-            <span className="text-text-ghost/60 text-[8px]">
-              {time.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}
-            </span>
-          </div>
-        </div>
+          {/* Separator before system tray */}
+          <div className="w-px h-6 bg-intent-primary/15 mx-1 self-center" />
+
+          {/* Brain status indicator */}
+          <DockItem tooltip={brainMode ?? 'VEILLE'}>
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl">
+              <motion.div
+                className={cn(
+                  'w-2.5 h-2.5 rounded-full',
+                  brainActive ? 'bg-intent-primary' : 'bg-text-ghost/30',
+                )}
+                animate={brainActive ? {
+                  scale: [1, 1.3, 1],
+                  opacity: [0.7, 1, 0.7],
+                  boxShadow: ['0 0 0 0 hsl(187 85% 53% / 0)', '0 0 8px 2px hsl(187 85% 53% / 0.4)', '0 0 0 0 hsl(187 85% 53% / 0)'],
+                } : {}}
+                transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            </div>
+          </DockItem>
+
+          {/* Bridge status */}
+          <DockItem tooltip={isAvailable ? 'Système connecté' : 'Mode web'}>
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl">
+              <div className={cn(
+                'w-1.5 h-1.5 rounded-full',
+                isAvailable ? 'bg-intent-success' : 'bg-text-ghost/40',
+              )} />
+            </div>
+          </DockItem>
+
+          {/* Clock */}
+          <DockItem tooltip={time.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}>
+            <div className="flex flex-col items-center justify-center w-14 h-10 rounded-xl">
+              <span className="text-[11px] font-light tabular-nums text-text-primary/90">
+                {time.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+              <span className="text-[8px] text-text-ghost/50">
+                {time.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}
+              </span>
+            </div>
+          </DockItem>
+        </motion.div>
       </motion.div>
 
       <StartRadialMenu
@@ -183,3 +184,49 @@ export const DesktopTaskbar = memo(function DesktopTaskbar({
     </>
   );
 });
+
+/** Individual dock item with hover magnification and tooltip */
+function DockItem({
+  children,
+  tooltip,
+  isActive,
+}: {
+  children: React.ReactNode;
+  tooltip?: string;
+  isActive?: boolean;
+}) {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <motion.div
+      className="relative flex flex-col items-center"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      animate={{
+        scale: hovered ? 1.15 : 1,
+        y: hovered ? -4 : 0,
+      }}
+      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+    >
+      {children}
+      <AnimatePresence>
+        {hovered && tooltip && (
+          <motion.div
+            initial={{ opacity: 0, y: 4, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.9 }}
+            transition={{ duration: 0.15 }}
+            className="absolute -top-8 whitespace-nowrap px-2 py-0.5 text-[9px] uppercase tracking-wider text-text-primary rounded-md pointer-events-none"
+            style={{
+              background: 'hsl(220 20% 10% / 0.9)',
+              border: '1px solid hsl(187 85% 53% / 0.2)',
+              backdropFilter: 'blur(12px)',
+            }}
+          >
+            {tooltip}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
