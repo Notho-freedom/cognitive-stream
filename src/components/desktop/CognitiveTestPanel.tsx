@@ -73,9 +73,8 @@ export const CognitiveTestPanel = memo(function CognitiveTestPanel({
         <Btn onClick={() => onPushThought('Pensée cognitive : analyse en cours…')}>Pensée</Btn>
       </Section>
 
-      <Section title="Explorateur">
-        <Btn onClick={() => onOpenExplorer()}>Ouvrir (Ce PC)</Btn>
-        <Btn onClick={() => onOpenExplorer('virtual:network')}>Réseau</Btn>
+      <Section title="Système">
+        <Btn onClick={() => notifyPush({ message: 'Explorateur en cours de développement', priority: 'low' })}>Info système</Btn>
       </Section>
     </div>
   );
