@@ -1,58 +1,54 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSettings } from '@/hooks/useSettings';
 
-const KEY = 'desktop:wallpaper:v1';
+/**
+ * Wallpaper slideshow hook.
+ * Supports: single image URL, or array of image URLs with timed rotation.
+ * Stored in settings: wallpaperPreset, wallpaperCustomUrl, wallpaperSlideshow, wallpaperSlideshowInterval
+ */
 
-export type WallpaperPreset = 'cyan-void' | 'purple-haze' | 'green-matrix' | 'monochrome';
+export function useWallpaperSlideshow() {
+  const { settings, update } = useSettings();
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-export interface WallpaperState {
-  preset: WallpaperPreset | 'custom';
-  customUrl?: string;
-}
+  const images = settings.wallpaperSlideshow ?? [];
+  const interval = (settings.wallpaperSlideshowInterval ?? 5) * 60 * 1000; // minutes -> ms
 
-const PRESET_BG: Record<WallpaperPreset, string> = {
-  'cyan-void': `
-    radial-gradient(ellipse 80% 50% at 50% -20%, hsl(187 85% 53% / 0.10), transparent),
-    radial-gradient(ellipse 60% 40% at 80% 100%, hsl(270 80% 65% / 0.06), transparent),
-    hsl(220 20% 4%)
-  `,
-  'purple-haze': `
-    radial-gradient(ellipse 70% 50% at 30% 0%, hsl(280 75% 55% / 0.18), transparent),
-    radial-gradient(ellipse 60% 50% at 80% 100%, hsl(320 70% 55% / 0.12), transparent),
-    hsl(260 25% 5%)
-  `,
-  'green-matrix': `
-    radial-gradient(ellipse 80% 50% at 50% 0%, hsl(155 80% 45% / 0.14), transparent),
-    radial-gradient(ellipse 50% 30% at 50% 100%, hsl(180 70% 40% / 0.08), transparent),
-    hsl(150 25% 4%)
-  `,
-  'monochrome': `
-    radial-gradient(ellipse 80% 60% at 50% 0%, hsl(220 12% 14% / 0.6), transparent),
-    hsl(220 10% 5%)
-  `,
-};
-
-function load(): WallpaperState {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return { preset: 'cyan-void' };
-}
-
-export function useWallpaper() {
-  const [state, setState] = useState<WallpaperState>(() => load());
-
+  // Rotation
   useEffect(() => {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {}
-  }, [state]);
+    if (images.length < 2) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setCurrentIndex(prev => (prev + 1) % images.length);
+    }, interval);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [images.length, interval]);
 
-  const setPreset = useCallback((preset: WallpaperPreset) => setState({ preset }), []);
-  const setCustomUrl = useCallback((url: string) => setState({ preset: 'custom', customUrl: url }), []);
+  const currentImage = images.length > 0 ? images[currentIndex % images.length] : null;
 
-  const background =
-    state.preset === 'custom' && state.customUrl
-      ? `url("${state.customUrl}") center/cover no-repeat, hsl(220 20% 4%)`
-      : PRESET_BG[(state.preset as WallpaperPreset) ?? 'cyan-void'];
+  const addImages = useCallback((urls: string[]) => {
+    const next = [...(settings.wallpaperSlideshow ?? []), ...urls];
+    update('wallpaperSlideshow', next);
+    update('wallpaperPreset', 'slideshow');
+  }, [settings.wallpaperSlideshow, update]);
 
-  return { state, setPreset, setCustomUrl, background, PRESET_BG };
+  const clearSlideshow = useCallback(() => {
+    update('wallpaperSlideshow', []);
+    update('wallpaperPreset', 'cyan-void');
+  }, [update]);
+
+  const setInterval_ = useCallback((minutes: number) => {
+    update('wallpaperSlideshowInterval', minutes);
+  }, [update]);
+
+  return {
+    currentImage,
+    images,
+    currentIndex,
+    addImages,
+    clearSlideshow,
+    setIntervalMinutes: setInterval_,
+    intervalMinutes: settings.wallpaperSlideshowInterval ?? 5,
+  };
 }
