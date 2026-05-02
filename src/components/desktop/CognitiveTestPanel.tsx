@@ -7,7 +7,7 @@ interface Props {
   onPushSchema: (schema: CognitiveUISchema) => void;
   onPushError: (msg: string) => void;
   onPushThought: (text: string) => void;
-  onOpenExplorer: (path?: string) => void;
+  onOpenExplorer?: (path?: string) => void;
 }
 
 const SIMPLE_TEXT_SCHEMA: CognitiveUISchema = {
