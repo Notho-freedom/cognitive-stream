@@ -280,8 +280,8 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
                   )}
                 </div>
                 <span
-                  className="text-center text-text-primary leading-tight max-w-full break-words line-clamp-2"
-                  style={{ textShadow: '0 1px 2px rgba(0,0,0,0.85)', fontSize: FONT_SIZE }}
+                  className="text-center text-foreground font-light leading-tight max-w-full break-words line-clamp-2"
+                  style={{ textShadow: '0 1px 3px rgba(0,0,0,0.9)', fontSize: FONT_SIZE }}
                 >
                   {icon.name.replace(/\.(lnk|url|exe|appref-ms)$/i, '')}
                 </span>
