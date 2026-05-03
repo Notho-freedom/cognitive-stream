@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useSystemBridge } from '@/hooks/useSystemBridge';
+import { useSound } from '@/hooks/useSound';
 import { type DesktopIcon, loadIconPositions, saveIconPositions } from '@/hooks/useDesktopIcons';
 import { DefaultFileIcon } from './DefaultFileIcon';
 import { CogContextMenu } from './CogContextMenu';
