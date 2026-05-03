@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { useSound } from '@/hooks/useSound';
 
 export interface CogContextMenuItem {
   label: string;
@@ -19,9 +20,10 @@ interface Props {
   onClose: () => void;
 }
 
-/** GX-styled context menu — frameless, beveled, glassmorphism. */
+/** Context menu — explorer glass-menu style */
 export function CogContextMenu({ open, x, y, items, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const { playHover } = useSound();
 
   useEffect(() => {
     if (!open) return;
@@ -37,11 +39,10 @@ export function CogContextMenu({ open, x, y, items, onClose }: Props) {
     };
   }, [open, onClose]);
 
-  // Clamp into viewport
   const clamp = () => {
     if (typeof window === 'undefined') return { left: x, top: y };
     const W = window.innerWidth, H = window.innerHeight;
-    const w = 220, h = items.length * 30 + 20;
+    const w = 220, h = items.length * 30 + 12;
     return {
       left: Math.min(W - w - 8, Math.max(8, x)),
       top: Math.min(H - h - 8, Math.max(8, y)),
@@ -53,37 +54,41 @@ export function CogContextMenu({ open, x, y, items, onClose }: Props) {
       {open && (
         <motion.div
           ref={ref}
-          initial={{ opacity: 0, scale: 0.95, y: -4 }}
+          initial={{ opacity: 0, scale: 0.96, y: -4 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.96 }}
-          transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
-          className="fixed z-[9999] w-[220px] bg-surface-deep/96 backdrop-blur-xl border border-intent-primary/25 shadow-[0_8px_32px_rgba(0,0,0,0.5)]"
+          transition={{ duration: 0.1, ease: [0.16, 1, 0.3, 1] }}
+          className="fixed z-[9999] w-[220px] glass-menu rounded-lg overflow-hidden"
           style={{
             ...clamp(),
-            clipPath: 'polygon(8px 0%, 100% 0%, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0% 100%, 0% 8px)',
+            background: 'hsl(220 24% 5% / 0.96)',
+            backdropFilter: 'blur(20px) saturate(1.3)',
+            border: '1px solid hsl(var(--border) / 0.5)',
+            boxShadow: '0 8px 32px hsl(0 0% 0% / 0.5)',
           }}
         >
           <div className="py-1">
             {items.map((item, i) =>
               item.separator ? (
-                <div key={i} className="h-px bg-intent-primary/15 my-1 mx-2" />
+                <div key={i} className="h-px bg-border/30 my-1 mx-2" />
               ) : (
                 <button
                   key={i}
                   disabled={item.disabled}
+                  onMouseEnter={playHover}
                   onClick={() => { item.onClick(); onClose(); }}
                   className={cn(
-                    'w-full flex items-center gap-3 px-3 py-1.5 text-[11px] tracking-wide transition-colors',
+                    'w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] font-light transition-colors',
                     item.disabled
-                      ? 'text-text-ghost/30 cursor-not-allowed'
+                      ? 'text-muted-foreground/30 cursor-not-allowed'
                       : item.danger
-                        ? 'text-intent-warning hover:bg-intent-warning/10'
-                        : 'text-text-primary hover:bg-intent-primary/10',
+                        ? 'text-destructive hover:bg-destructive/10'
+                        : 'text-foreground hover:bg-[hsl(var(--explorer-hover))]',
                   )}
                 >
                   <span className={cn(
-                    'w-4 text-center',
-                    item.danger ? 'text-intent-warning' : 'text-intent-primary',
+                    'w-4 text-center text-[11px]',
+                    item.danger ? 'text-destructive' : 'text-muted-foreground',
                   )}>
                     {item.icon ?? '◇'}
                   </span>
