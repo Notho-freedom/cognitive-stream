@@ -34,6 +34,7 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
   onDesktopContextMenu,
 }: Props) {
   const { exec, systemInfo, getFileIcon, resolveShortcut } = useSystemBridge();
+  const { play, playHover } = useSound();
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>(() => loadIconPositions());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
