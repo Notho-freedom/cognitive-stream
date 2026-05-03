@@ -152,18 +152,18 @@ export function DesktopCommandBar({
           {/* Drag handle bar at top */}
           <div
             onMouseDown={handleDragStart}
-            className="h-3 w-[560px] bg-intent-primary/15 hover:bg-intent-primary/30 cursor-grab active:cursor-grabbing transition-colors flex items-center justify-center gap-1"
-            style={{ clipPath: 'polygon(16px 0, calc(100% - 16px) 0, 100% 100%, 0 100%)' }}
+            className="h-2.5 w-[560px] bg-[hsl(var(--explorer-hover))] hover:bg-border/50 cursor-grab active:cursor-grabbing transition-colors flex items-center justify-center gap-1 rounded-t-lg"
             title="Glissez pour déplacer · Ctrl+K"
           >
-            <span className="w-6 h-0.5 bg-intent-primary/60" />
-            <span className="w-2 h-0.5 bg-intent-primary/60" />
+            <span className="w-6 h-0.5 bg-muted-foreground/30 rounded" />
+            <span className="w-2 h-0.5 bg-muted-foreground/30 rounded" />
           </div>
 
           <div
-            className="relative w-[560px] bg-surface-deep/95 backdrop-blur-2xl border border-intent-primary/20"
+            className="relative w-[560px] rounded-b-lg overflow-hidden border border-border/40 border-t-0"
             style={{
-              clipPath: 'polygon(16px 0%, calc(100% - 4px) 0%, 100% 4px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 4px 100%, 0% calc(100% - 4px), 0% 16px)',
+              background: 'hsl(220 24% 4% / 0.96)',
+              backdropFilter: 'blur(24px) saturate(1.4)',
             }}
           >
             <div
