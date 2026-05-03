@@ -219,9 +219,9 @@ export function DesktopCommandBar({
 
             <motion.div
               className="absolute inset-x-0 h-px pointer-events-none"
-              style={{ background: 'linear-gradient(90deg, transparent, hsl(187 100% 60% / 0.3), transparent)' }}
+              style={{ background: 'linear-gradient(90deg, transparent, hsl(var(--primary) / 0.2), transparent)' }}
               animate={{ top: ['0%', '100%'] }}
-              transition={{ duration: 6, repeat: Infinity, ease: 'linear' }}
+              transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
             />
           </div>
         </motion.div>
