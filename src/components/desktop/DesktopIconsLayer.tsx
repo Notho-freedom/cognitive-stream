@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useSystemBridge } from '@/hooks/useSystemBridge';
+import { useSound } from '@/hooks/useSound';
 import { type DesktopIcon, loadIconPositions, saveIconPositions } from '@/hooks/useDesktopIcons';
 import { DefaultFileIcon } from './DefaultFileIcon';
 import { CogContextMenu } from './CogContextMenu';
@@ -33,6 +34,7 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
   onDesktopContextMenu,
 }: Props) {
   const { exec, systemInfo, getFileIcon, resolveShortcut } = useSystemBridge();
+  const { play, playHover } = useSound();
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>(() => loadIconPositions());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
@@ -99,6 +101,7 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
   }, [icons, iconImages, getFileIcon, resolveShortcut, systemInfo?.platform, onResolveImage]);
 
   const handleOpen = useCallback(async (icon: DesktopIcon) => {
+    play('dblclick');
     if (icon.isDirectory && onOpenFolder) {
       onOpenFolder(icon.path);
       return;
@@ -107,7 +110,7 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
     if (platform === 'win32') await exec(`Start-Process -FilePath "${icon.path}"`);
     else if (platform === 'darwin') await exec(`open "${icon.path}"`);
     else await exec(`xdg-open "${icon.path}"`);
-  }, [exec, systemInfo?.platform, onOpenFolder]);
+  }, [exec, systemInfo?.platform, onOpenFolder, play]);
 
   const handleDragStart = useCallback((e: React.MouseEvent, icon: DesktopIcon) => {
     if (e.button !== 0) return;
@@ -248,8 +251,10 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
               animate={{ opacity: 1 }}
               transition={{ duration: 0.15 }}
               onMouseDown={(e) => handleDragStart(e, icon)}
+              onMouseEnter={playHover}
               onClick={(e) => {
                 e.stopPropagation();
+                play('click');
                 if (e.ctrlKey || e.metaKey) {
                   setSelectedIds(prev => {
                     const next = new Set(prev);
@@ -275,8 +280,8 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
                   )}
                 </div>
                 <span
-                  className="text-center text-text-primary leading-tight max-w-full break-words line-clamp-2"
-                  style={{ textShadow: '0 1px 2px rgba(0,0,0,0.85)', fontSize: FONT_SIZE }}
+                  className="text-center text-foreground font-light leading-tight max-w-full break-words line-clamp-2"
+                  style={{ textShadow: '0 1px 3px rgba(0,0,0,0.9)', fontSize: FONT_SIZE }}
                 >
                   {icon.name.replace(/\.(lnk|url|exe|appref-ms)$/i, '')}
                 </span>

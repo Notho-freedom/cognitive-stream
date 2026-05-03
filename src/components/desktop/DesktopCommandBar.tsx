@@ -152,33 +152,33 @@ export function DesktopCommandBar({
           {/* Drag handle bar at top */}
           <div
             onMouseDown={handleDragStart}
-            className="h-3 w-[560px] bg-intent-primary/15 hover:bg-intent-primary/30 cursor-grab active:cursor-grabbing transition-colors flex items-center justify-center gap-1"
-            style={{ clipPath: 'polygon(16px 0, calc(100% - 16px) 0, 100% 100%, 0 100%)' }}
+            className="h-2.5 w-[560px] bg-[hsl(var(--explorer-hover))] hover:bg-border/50 cursor-grab active:cursor-grabbing transition-colors flex items-center justify-center gap-1 rounded-t-lg"
             title="Glissez pour déplacer · Ctrl+K"
           >
-            <span className="w-6 h-0.5 bg-intent-primary/60" />
-            <span className="w-2 h-0.5 bg-intent-primary/60" />
+            <span className="w-6 h-0.5 bg-muted-foreground/30 rounded" />
+            <span className="w-2 h-0.5 bg-muted-foreground/30 rounded" />
           </div>
 
           <div
-            className="relative w-[560px] bg-surface-deep/95 backdrop-blur-2xl border border-intent-primary/20"
+            className="relative w-[560px] rounded-b-lg overflow-hidden border border-border/40 border-t-0"
             style={{
-              clipPath: 'polygon(16px 0%, calc(100% - 4px) 0%, 100% 4px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 4px 100%, 0% calc(100% - 4px), 0% 16px)',
+              background: 'hsl(220 24% 4% / 0.96)',
+              backdropFilter: 'blur(24px) saturate(1.4)',
             }}
           >
             <div
-              className="absolute inset-0 opacity-[0.02] pointer-events-none"
+              className="absolute inset-0 opacity-[0.015] pointer-events-none"
               style={{
                 backgroundImage: `
-                  linear-gradient(hsl(187 85% 53% / 0.2) 1px, transparent 1px),
-                  linear-gradient(90deg, hsl(187 85% 53% / 0.2) 1px, transparent 1px)
+                  linear-gradient(hsl(var(--primary) / 0.15) 1px, transparent 1px),
+                  linear-gradient(90deg, hsl(var(--primary) / 0.15) 1px, transparent 1px)
                 `,
                 backgroundSize: '16px 16px',
               }}
             />
 
             <form onSubmit={handleSubmit}>
-              <div className="relative z-10 flex items-center gap-2 px-4 py-3">
+              <div className="relative z-10 flex items-center gap-2 px-3 py-2.5">
                 <StateIndicator mode={getIndicatorMode()} size="sm" />
                 <input
                   ref={inputRef}
@@ -188,14 +188,14 @@ export function DesktopCommandBar({
                   placeholder={pendingAction ? 'Confirmez...' : "Demandez à l'IA... (Ctrl+K)"}
                   disabled={isLoading}
                   className={cn(
-                    'flex-1 bg-transparent text-text-primary placeholder:text-text-ghost/40',
-                    'text-sm font-light tracking-wide outline-none',
+                    'flex-1 bg-transparent text-foreground placeholder:text-muted-foreground/40',
+                    'text-[12px] font-light tracking-wide outline-none',
                   )}
                 />
-                <div className="flex items-center gap-2 text-[7px] text-text-ghost font-mono tracking-wider">
-                  {brainMode && <span className="text-intent-primary">{brainMode}</span>}
+                <div className="flex items-center gap-2 text-[8px] text-muted-foreground font-mono tracking-wider">
+                  {brainMode && <span className="text-primary">{brainMode}</span>}
                   {aiProvider && (
-                    <span className={isLocalFallback ? 'text-intent-focus' : 'text-intent-secondary'}>
+                    <span className={isLocalFallback ? 'text-amber-400' : 'text-muted-foreground/70'}>
                       {getProviderDisplay()}
                     </span>
                   )}
@@ -205,11 +205,10 @@ export function DesktopCommandBar({
                   type="submit"
                   disabled={isLoading || !input.trim()}
                   className={cn(
-                    'px-3 py-1.5 text-[10px] uppercase tracking-wider font-medium transition-all',
-                    'text-text-primary border border-intent-primary/40',
-                    'hover:bg-intent-primary/20 disabled:opacity-30 disabled:cursor-not-allowed',
+                    'px-2.5 py-1 text-[10px] font-light tracking-wider transition-all rounded',
+                    'text-foreground border border-border/40',
+                    'hover:bg-[hsl(var(--explorer-hover))] disabled:opacity-30 disabled:cursor-not-allowed',
                   )}
-                  style={{ clipPath: 'polygon(4px 0%, 100% 0%, calc(100% - 4px) 100%, 0% 100%)' }}
                 >
                   {isLoading ? (
                     <motion.span animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>◐</motion.span>
@@ -220,9 +219,9 @@ export function DesktopCommandBar({
 
             <motion.div
               className="absolute inset-x-0 h-px pointer-events-none"
-              style={{ background: 'linear-gradient(90deg, transparent, hsl(187 100% 60% / 0.3), transparent)' }}
+              style={{ background: 'linear-gradient(90deg, transparent, hsl(var(--primary) / 0.2), transparent)' }}
               animate={{ top: ['0%', '100%'] }}
-              transition={{ duration: 6, repeat: Infinity, ease: 'linear' }}
+              transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
             />
           </div>
         </motion.div>

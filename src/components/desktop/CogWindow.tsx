@@ -1,9 +1,9 @@
 import { useCallback, useRef, memo, type ReactNode, type MouseEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Minus, Maximize2, X } from 'lucide-react';
-import { FuturisticFrame } from '@/components/cognitive/FuturisticFrame';
+import { Minus, Square, X } from 'lucide-react';
 import { CogContextMenu } from './CogContextMenu';
 import { useContextMenu } from '@/hooks/useContextMenu';
+import { useSound } from '@/hooks/useSound';
 import { cn } from '@/lib/utils';
 import type { CogWindowState } from '@/hooks/useCogWindowManager';
 
@@ -29,6 +29,7 @@ export const CogWindow = memo(function CogWindow({
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const rafRef = useRef<number | null>(null);
   const ctx = useContextMenu();
+  const { play, playHover } = useSound();
 
   const windowContextItems = [
     { label: win.minimized ? 'Restaurer' : 'Réduire', icon: '−', onClick: () => onMinimize(win.id) },
@@ -88,62 +89,80 @@ export const CogWindow = memo(function CogWindow({
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
+      initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
       style={style}
       className="pointer-events-auto"
       onMouseDown={() => onFocus(win.id)}
     >
-      <FuturisticFrame
-        variant="primary"
-        animated={false}
-        surfaceOpacity={win.focused ? 1.0 : 0.85}
-        gridOpacity={0.015}
+      <div
+        className={cn(
+          'flex flex-col h-full rounded-lg overflow-hidden border',
+          win.focused ? 'border-border/50' : 'border-border/25',
+        )}
+        style={{
+          background: 'hsl(220 24% 4% / 0.96)',
+          backdropFilter: 'blur(20px)',
+          boxShadow: win.focused
+            ? '0 12px 40px hsl(0 0% 0% / 0.5), 0 0 1px hsl(var(--primary) / 0.2)'
+            : '0 8px 24px hsl(0 0% 0% / 0.4)',
+        }}
       >
-        <div className="flex flex-col h-full">
-          {/* Title bar — draggable + context menu */}
-          <div
-            className="flex items-center justify-between px-4 py-2 border-b border-intent-primary/15 cursor-grab select-none"
-            onMouseDown={handleDragStart}
-            onContextMenu={(e) => { e.preventDefault(); ctx.openMenu(e as any, windowContextItems); }}
-          >
-            <div className="flex items-center gap-2">
-              <div className={cn(
-                'w-1.5 h-1.5 rounded-full',
-                win.focused ? 'bg-intent-primary' : 'bg-text-ghost/40',
-              )} />
-              <span className="text-[10px] uppercase tracking-[0.25em] text-text-ghost/70">
-                {win.title}
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              <button onClick={() => onMinimize(win.id)} className="p-1 text-text-ghost/40 hover:text-text-primary transition-colors">
-                <Minus className="w-3.5 h-3.5" />
-              </button>
-              <button onClick={() => onMaximize(win.id)} className="p-1 text-text-ghost/40 hover:text-text-primary transition-colors">
-                <Maximize2 className="w-3 h-3" />
-              </button>
-              <button onClick={() => onClose(win.id)} className="p-1 text-text-ghost/40 hover:text-intent-warning transition-colors">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
+        {/* Title bar — explorer-style */}
+        <div
+          className="flex items-center h-9 px-2 border-b border-border/40 cursor-grab select-none shrink-0"
+          style={{ background: 'hsl(220 24% 3%)' }}
+          onMouseDown={handleDragStart}
+          onContextMenu={(e) => { e.preventDefault(); ctx.openMenu(e as any, windowContextItems); }}
+        >
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className={cn(
+              'w-1.5 h-1.5 rounded-full shrink-0',
+              win.focused ? 'bg-primary' : 'bg-muted-foreground/30',
+            )} />
+            <span className="text-[12px] font-light text-muted-foreground truncate">
+              {win.title}
+            </span>
           </div>
-
-          {/* Content */}
-          {!win.minimized && (
-            <div className="flex-1 min-h-0 overflow-hidden">
-              {children}
-            </div>
-          )}
-          {win.minimized && (
-            <div className="px-4 py-2 text-[10px] text-text-ghost/55">
-              Fenêtre réduite
-            </div>
-          )}
+          <div className="flex items-center shrink-0">
+            <button
+              onClick={() => { play('click'); onMinimize(win.id); }}
+              onMouseEnter={playHover}
+              className="h-9 w-11 flex items-center justify-center text-muted-foreground/70 hover:text-foreground hover:bg-[hsl(var(--explorer-hover))] transition-colors"
+            >
+              <Minus size={13} />
+            </button>
+            <button
+              onClick={() => { play('click'); onMaximize(win.id); }}
+              onMouseEnter={playHover}
+              className="h-9 w-11 flex items-center justify-center text-muted-foreground/70 hover:text-foreground hover:bg-[hsl(var(--explorer-hover))] transition-colors"
+            >
+              <Square size={11} />
+            </button>
+            <button
+              onClick={() => { play('close'); onClose(win.id); }}
+              onMouseEnter={playHover}
+              className="h-9 w-11 flex items-center justify-center text-muted-foreground/70 hover:text-white hover:bg-destructive transition-colors"
+            >
+              <X size={13} />
+            </button>
+          </div>
         </div>
-      </FuturisticFrame>
+
+        {/* Content */}
+        {!win.minimized && (
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {children}
+          </div>
+        )}
+        {win.minimized && (
+          <div className="px-3 py-2 text-[11px] text-muted-foreground font-light">
+            Fenêtre réduite
+          </div>
+        )}
+      </div>
       <CogContextMenu open={ctx.menu.open} x={ctx.menu.x} y={ctx.menu.y} items={ctx.menu.items} onClose={ctx.close} />
     </motion.div>
   );
