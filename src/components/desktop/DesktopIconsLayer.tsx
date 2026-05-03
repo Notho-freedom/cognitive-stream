@@ -101,6 +101,7 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
   }, [icons, iconImages, getFileIcon, resolveShortcut, systemInfo?.platform, onResolveImage]);
 
   const handleOpen = useCallback(async (icon: DesktopIcon) => {
+    play('dblclick');
     if (icon.isDirectory && onOpenFolder) {
       onOpenFolder(icon.path);
       return;
@@ -109,7 +110,7 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
     if (platform === 'win32') await exec(`Start-Process -FilePath "${icon.path}"`);
     else if (platform === 'darwin') await exec(`open "${icon.path}"`);
     else await exec(`xdg-open "${icon.path}"`);
-  }, [exec, systemInfo?.platform, onOpenFolder]);
+  }, [exec, systemInfo?.platform, onOpenFolder, play]);
 
   const handleDragStart = useCallback((e: React.MouseEvent, icon: DesktopIcon) => {
     if (e.button !== 0) return;
