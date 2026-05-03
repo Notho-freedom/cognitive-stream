@@ -9,6 +9,7 @@ import { useNotifications } from '@/components/cognitive/NotificationQueue';
 import { useCognitiveBrain } from '@/hooks/useCognitiveBrain';
 import { useCognitiveEdgeTTS } from '@/hooks/useCognitiveEdgeTTS';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
+import { useSound } from '@/hooks/useSound';
 import { useFloatingCards } from '@/hooks/useFloatingCards';
 import { useSystemBridge } from '@/hooks/useSystemBridge';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
@@ -31,6 +32,8 @@ import { CogContextMenu } from './CogContextMenu';
 import { CognitiveTestPanel } from './CognitiveTestPanel';
 import { CogWindow } from './CogWindow';
 import { AIActivityOrb } from './AIActivityOrb';
+import { FileExplorer } from '@/components/explorer';
+import { TerminalWindow } from './TerminalWindow';
 import { useNavigate } from 'react-router-dom';
 
 const brainModeLabels: Record<string, string> = {
@@ -43,13 +46,14 @@ const brainModeLabels: Record<string, string> = {
   adapting: 'ADAPTATION',
 };
 
-const TASKBAR_HEIGHT = 56;
+const TASKBAR_HEIGHT = 40;
 
 function DesktopWidgetShellInner() {
   const { push: notifyPush } = useNotifications();
   const { settings, update } = useSettings();
   const brain = useCognitiveBrain(notifyPush);
   const { play: playSound, setEnabled: setSoundEnabled } = useSoundEffects();
+  const { play: playSfx } = useSound();
   const floatingCards = useFloatingCards();
   const cogWindows = useCogWindowManager();
   const desktopCtxMenu = useContextMenu();
@@ -181,13 +185,27 @@ function DesktopWidgetShellInner() {
 
   const toggleCommandBar = useCallback(() => setCommandBarVisible(prev => !prev), []);
 
+  // --- Open explorer as CogWindow ---
+  const openExplorer = useCallback((path?: string) => {
+    playSfx('open');
+    cogWindows.open('explorer', 'EXPLORATEUR', { size: { width: 1000, height: 700 } });
+  }, [playSfx, cogWindows]);
+
+  // --- Open terminal as CogWindow ---
+  const openTerminal = useCallback(() => {
+    playSfx('open');
+    cogWindows.open('terminal', 'TERMINAL', { size: { width: 700, height: 420 } });
+  }, [playSfx, cogWindows]);
+
   const desktopCommands = useMemo(() => ({
+    'open explorer': () => openExplorer(),
+    'open terminal': () => openTerminal(),
     'open settings': () => navigate('/settings'),
     'open tests': () => cogWindows.open('tests', 'PANEL DE TEST', { size: { width: 480, height: 600 } }),
     'clear': () => floatingCards.dismissAll(),
     'close all': () => { floatingCards.dismissAll(); cogWindows.windows.forEach(w => cogWindows.close(w.id)); },
     'focus terminal': () => setCommandBarVisible(true),
-  }), [navigate, cogWindows, floatingCards]);
+  }), [navigate, cogWindows, floatingCards, openExplorer, openTerminal]);
 
   const handleCommandSend = useStableCallback((msg: string) => {
     const lower = msg.toLowerCase().trim();
@@ -197,21 +215,31 @@ function DesktopWidgetShellInner() {
   });
 
   const radialItems = useMemo(() => [
-    { label: 'Terminal', icon: '⌘', onClick: () => setCommandBarVisible(true) },
+    { label: 'Explorateur', icon: '📁', onClick: () => openExplorer() },
+    { label: 'Terminal', icon: '⌘', onClick: () => openTerminal() },
     { label: 'Tests', icon: '⊛', onClick: () => cogWindows.open('tests', 'PANEL DE TEST', { size: { width: 480, height: 600 } }) },
     { label: 'Paramètres', icon: '⚙', onClick: () => navigate('/settings') },
     { label: 'Quitter', icon: '✕', danger: true, onClick: () => { (window as any).electron?.app?.quit?.(); } },
-  ], [cogWindows, navigate]);
+  ], [cogWindows, navigate, openExplorer, openTerminal]);
 
   const desktopMenuItems = useMemo(() => [
     { label: 'Actualiser', icon: '↻', onClick: () => desktopIcons.refresh() },
     { separator: true, label: '', onClick: () => {} },
-    { label: 'Terminal IA', icon: '⌘', onClick: () => setCommandBarVisible(true) },
-    { label: 'Nouveau dossier', icon: '+', onClick: () => {} },
+    { label: 'Explorateur', icon: '📁', onClick: () => openExplorer() },
+    { label: 'Terminal', icon: '⌘', onClick: () => openTerminal() },
+    { label: 'Terminal IA', icon: '▸', onClick: () => setCommandBarVisible(true) },
     { separator: true, label: '', onClick: () => {} },
+    { label: 'Nouveau dossier', icon: '+', onClick: () => {} },
     { label: 'Trier par nom', icon: 'A', onClick: () => {} },
+    { separator: true, label: '', onClick: () => {} },
     { label: 'Personnaliser', icon: '⚙', onClick: () => navigate('/settings') },
-  ], [desktopIcons, navigate]);
+  ], [desktopIcons, navigate, openExplorer, openTerminal]);
+
+  // Sound on window open/close
+  const handleWindowClose = useCallback((id: string) => {
+    playSfx('close');
+    cogWindows.close(id);
+  }, [playSfx, cogWindows]);
 
   return (
     <MotionConfig reducedMotion={settings.reduceMotion ? 'always' : 'user'}>
@@ -249,7 +277,7 @@ function DesktopWidgetShellInner() {
           icons={desktopIcons.icons}
           iconImages={desktopIcons.iconImages}
           onResolveImage={desktopIcons.setIconImage}
-          onOpenFolder={() => {}}
+          onOpenFolder={openExplorer}
           scale={settings.iconScale}
           onDesktopContextMenu={(e) => desktopCtxMenu.openMenu(e, desktopMenuItems)}
         />
@@ -278,7 +306,7 @@ function DesktopWidgetShellInner() {
               <CogWindow
                 key={win.id}
                 window={win}
-                onClose={cogWindows.close}
+                onClose={handleWindowClose}
                 onFocus={cogWindows.focus}
                 onMinimize={cogWindows.minimize}
                 onMaximize={cogWindows.maximize}
@@ -293,12 +321,23 @@ function DesktopWidgetShellInner() {
                     />
                   </div>
                 )}
+                {win.type === 'explorer' && (
+                  <FileExplorer
+                    embeddedMode="cognitive-stream"
+                    onClose={() => handleWindowClose(win.id)}
+                    className="h-full"
+                    showWindowChrome={false}
+                  />
+                )}
+                {win.type === 'terminal' && (
+                  <TerminalWindow onClose={() => handleWindowClose(win.id)} />
+                )}
               </CogWindow>
             ))}
           </AnimatePresence>
         </div>
 
-        {/* Taskbar dock */}
+        {/* Taskbar */}
         <DesktopTaskbar
           brainMode={brainMode}
           isAutonomous={isAutonomousMode}
@@ -308,7 +347,7 @@ function DesktopWidgetShellInner() {
           windows={cogWindows.windows}
           onFocusWindow={cogWindows.focus}
           onMinimizeWindow={cogWindows.minimize}
-          onCloseWindow={cogWindows.close}
+          onCloseWindow={handleWindowClose}
           radialItems={radialItems}
           onToggleCommandBar={toggleCommandBar}
           isLoading={isLoading}
