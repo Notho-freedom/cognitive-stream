@@ -1,85 +1,39 @@
-import { useState, useCallback, useRef, type DragEvent } from 'react';
+import { useState, useCallback } from 'react';
 
-export interface DragDropItem {
-  id: string;
-  path: string;
-  type: 'file' | 'directory';
-  name: string;
+const MIME = 'application/x-explorer-ids';
+
+export function useDragDropTarget(onDrop: (ids: string[], copy: boolean) => void) {
+  const [over, setOver] = useState(false);
+  const handlers = {
+    onDragOver: (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes(MIME)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = e.ctrlKey || e.metaKey ? 'copy' : 'move';
+      if (!over) setOver(true);
+    },
+    onDragLeave: () => setOver(false),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      setOver(false);
+      const raw = e.dataTransfer.getData(MIME);
+      if (!raw) return;
+      try {
+        const ids = JSON.parse(raw) as string[];
+        if (Array.isArray(ids) && ids.length) onDrop(ids, e.ctrlKey || e.metaKey);
+      } catch {}
+    },
+  };
+  return { over, handlers };
 }
 
-interface UseDragDropOptions {
-  onDrop?: (items: DragDropItem[], targetPath: string) => void;
-}
-
-export function useDragDrop(options: UseDragDropOptions = {}) {
-  const [draggedItems, setDraggedItems] = useState<DragDropItem[]>([]);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragCounterRef = useRef(0);
-
-  const startDrag = useCallback((items: DragDropItem[], e: DragEvent) => {
-    setDraggedItems(items);
-    setIsDragging(true);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('application/json', JSON.stringify(items));
-  }, []);
-
-  const handleDragEnter = useCallback((targetPath: string, e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounterRef.current++;
-    setDropTarget(targetPath);
-  }, []);
-
-  const handleDragLeave = useCallback((e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounterRef.current--;
-    if (dragCounterRef.current === 0) {
-      setDropTarget(null);
-    }
-  }, []);
-
-  const handleDragOver = useCallback((e: DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  }, []);
-
-  const handleDrop = useCallback((targetPath: string, e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounterRef.current = 0;
-    setDropTarget(null);
-    setIsDragging(false);
-
-    try {
-      const raw = e.dataTransfer.getData('application/json');
-      if (raw) {
-        const items = JSON.parse(raw) as DragDropItem[];
-        options.onDrop?.(items, targetPath);
-      }
-    } catch {
-      // ignore
-    }
-    setDraggedItems([]);
-  }, [options]);
-
-  const endDrag = useCallback(() => {
-    setIsDragging(false);
-    setDraggedItems([]);
-    setDropTarget(null);
-    dragCounterRef.current = 0;
-  }, []);
-
+export function makeDragHandlers(ids: string[]) {
   return {
-    draggedItems,
-    dropTarget,
-    isDragging,
-    startDrag,
-    handleDragEnter,
-    handleDragLeave,
-    handleDragOver,
-    handleDrop,
-    endDrag,
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.effectAllowed = 'copyMove';
+      e.dataTransfer.setData(MIME, JSON.stringify(ids));
+    },
   };
 }
+
+export const EXPLORER_DND_MIME = MIME;

@@ -99,12 +99,7 @@ function emitDirectoryWatchEvent(ownerId, payload) {
 
 function getMainWindowWebContents() {
   if (!mainWindow) return null;
-  let contents = null;
-  try {
-    contents = mainWindow.webContents;
-  } catch {
-    return null;
-  }
+  const contents = mainWindow.webContents;
   if (!contents || contents.isDestroyed()) return null;
   return contents;
 }
@@ -214,7 +209,6 @@ function resolveWindowsShortcut(filePath) {
 let mainWindow;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-const shouldOpenDevTools = process.env.ELECTRON_OPEN_DEVTOOLS === '1';
 
 function runPowerShell(script, options = {}) {
   return execFileSync(
@@ -1011,22 +1005,22 @@ function createWindow() {
     },
     titleBarStyle: 'hidden',
   });
-  const mainWindowOwnerId = mainWindow.webContents.id;
 
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setFullScreen(true);
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:8080?time=' + new Date().getTime());
-    if (shouldOpenDevTools) {
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
-    }
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
   mainWindow.on('closed', () => {
-    stopDirectoryWatchersForOwner(mainWindowOwnerId);
+    const ownerId = mainWindow?.webContents?.id;
+    if (ownerId) {
+      stopDirectoryWatchersForOwner(ownerId);
+    }
     rendererExplorerChannelReady = false;
     mainWindow = null;
   });
@@ -1113,7 +1107,7 @@ if (hasSingleInstanceLock) {
   });
 
   app.on('window-all-closed', () => {
-    const ownerId = getMainWindowWebContents()?.id;
+    const ownerId = mainWindow?.webContents?.id;
     if (ownerId) {
       stopDirectoryWatchersForOwner(ownerId);
     }
