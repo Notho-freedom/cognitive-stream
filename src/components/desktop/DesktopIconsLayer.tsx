@@ -252,7 +252,9 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
               transition={{ duration: 0.15 }}
               onMouseDown={(e) => handleDragStart(e, icon)}
               onMouseEnter={playHover}
+              onClick={(e) => {
                 e.stopPropagation();
+                play('click');
                 if (e.ctrlKey || e.metaKey) {
                   setSelectedIds(prev => {
                     const next = new Set(prev);
