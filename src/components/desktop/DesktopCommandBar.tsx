@@ -192,10 +192,10 @@ export function DesktopCommandBar({
                     'text-[12px] font-light tracking-wide outline-none',
                   )}
                 />
-                <div className="flex items-center gap-2 text-[7px] text-text-ghost font-mono tracking-wider">
-                  {brainMode && <span className="text-intent-primary">{brainMode}</span>}
+                <div className="flex items-center gap-2 text-[8px] text-muted-foreground font-mono tracking-wider">
+                  {brainMode && <span className="text-primary">{brainMode}</span>}
                   {aiProvider && (
-                    <span className={isLocalFallback ? 'text-intent-focus' : 'text-intent-secondary'}>
+                    <span className={isLocalFallback ? 'text-amber-400' : 'text-muted-foreground/70'}>
                       {getProviderDisplay()}
                     </span>
                   )}
@@ -205,11 +205,10 @@ export function DesktopCommandBar({
                   type="submit"
                   disabled={isLoading || !input.trim()}
                   className={cn(
-                    'px-3 py-1.5 text-[10px] uppercase tracking-wider font-medium transition-all',
-                    'text-text-primary border border-intent-primary/40',
-                    'hover:bg-intent-primary/20 disabled:opacity-30 disabled:cursor-not-allowed',
+                    'px-2.5 py-1 text-[10px] font-light tracking-wider transition-all rounded',
+                    'text-foreground border border-border/40',
+                    'hover:bg-[hsl(var(--explorer-hover))] disabled:opacity-30 disabled:cursor-not-allowed',
                   )}
-                  style={{ clipPath: 'polygon(4px 0%, 100% 0%, calc(100% - 4px) 100%, 0% 100%)' }}
                 >
                   {isLoading ? (
                     <motion.span animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>◐</motion.span>
