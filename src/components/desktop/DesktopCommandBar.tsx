@@ -178,7 +178,7 @@ export function DesktopCommandBar({
             />
 
             <form onSubmit={handleSubmit}>
-              <div className="relative z-10 flex items-center gap-2 px-4 py-3">
+              <div className="relative z-10 flex items-center gap-2 px-3 py-2.5">
                 <StateIndicator mode={getIndicatorMode()} size="sm" />
                 <input
                   ref={inputRef}
@@ -188,8 +188,8 @@ export function DesktopCommandBar({
                   placeholder={pendingAction ? 'Confirmez...' : "Demandez à l'IA... (Ctrl+K)"}
                   disabled={isLoading}
                   className={cn(
-                    'flex-1 bg-transparent text-text-primary placeholder:text-text-ghost/40',
-                    'text-sm font-light tracking-wide outline-none',
+                    'flex-1 bg-transparent text-foreground placeholder:text-muted-foreground/40',
+                    'text-[12px] font-light tracking-wide outline-none',
                   )}
                 />
                 <div className="flex items-center gap-2 text-[7px] text-text-ghost font-mono tracking-wider">
