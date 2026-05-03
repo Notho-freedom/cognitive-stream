@@ -167,11 +167,11 @@ export function DesktopCommandBar({
             }}
           >
             <div
-              className="absolute inset-0 opacity-[0.02] pointer-events-none"
+              className="absolute inset-0 opacity-[0.015] pointer-events-none"
               style={{
                 backgroundImage: `
-                  linear-gradient(hsl(187 85% 53% / 0.2) 1px, transparent 1px),
-                  linear-gradient(90deg, hsl(187 85% 53% / 0.2) 1px, transparent 1px)
+                  linear-gradient(hsl(var(--primary) / 0.15) 1px, transparent 1px),
+                  linear-gradient(90deg, hsl(var(--primary) / 0.15) 1px, transparent 1px)
                 `,
                 backgroundSize: '16px 16px',
               }}
