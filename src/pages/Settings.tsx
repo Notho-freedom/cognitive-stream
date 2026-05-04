@@ -8,10 +8,11 @@ import { FuturisticFrame } from '@/components/cognitive/FuturisticFrame';
 import { useSettings, WALLPAPER_BACKGROUNDS, type DesktopSettings } from '@/hooks/useSettings';
 import { cn } from '@/lib/utils';
 
-type Section = 'apparence' | 'comportement' | 'audio' | 'systeme' | 'cognitif' | 'about';
+type Section = 'apparence' | 'comportement' | 'audio' | 'systeme' | 'cognitif' | 'affichage' | 'about';
 
 const SECTIONS: Array<{ id: Section; label: string; icon: string }> = [
   { id: 'apparence', label: 'Apparence', icon: '◉' },
+  { id: 'affichage', label: 'Affichage', icon: '◐' },
   { id: 'comportement', label: 'Comportement', icon: '◇' },
   { id: 'audio', label: 'Audio', icon: '◈' },
   { id: 'systeme', label: 'Système', icon: '◆' },
@@ -32,6 +33,17 @@ const FONTS: Array<{ id: DesktopSettings['fontFamily']; label: string; sample: s
   { id: 'default', label: 'Système', sample: 'Inter / System' },
   { id: 'mono', label: 'Monospace', sample: 'JetBrains Mono' },
   { id: 'sans', label: 'Sans-serif', sample: 'Helvetica Neue' },
+];
+
+const ACCENT_COLORS = [
+  { label: 'Cyan', value: '187 85% 53%' },
+  { label: 'Blue', value: '220 90% 56%' },
+  { label: 'Violet', value: '270 80% 60%' },
+  { label: 'Rose', value: '330 85% 60%' },
+  { label: 'Orange', value: '30 95% 55%' },
+  { label: 'Vert', value: '155 80% 45%' },
+  { label: 'Rouge', value: '0 85% 55%' },
+  { label: 'Blanc', value: '0 0% 90%' },
 ];
 
 const SLIDESHOW_INTERVALS = [1, 2, 5, 10, 15, 30];
@@ -58,11 +70,9 @@ export default function Settings() {
         processed++;
         if (processed === imageFiles.length) {
           if (urls.length === 1) {
-            // Single image -> custom wallpaper
             update('wallpaperCustomUrl', urls[0]);
             update('wallpaperPreset', 'custom');
           } else {
-            // Multiple images -> slideshow
             update('wallpaperSlideshow', [...(settings.wallpaperSlideshow ?? []), ...urls]);
             update('wallpaperPreset', 'slideshow');
           }
@@ -251,6 +261,28 @@ export default function Settings() {
                       </div>
                     )}
 
+                    <Heading title="Couleur d'accent" subtitle="Couleur principale de l'interface" />
+                    <div className="grid grid-cols-4 gap-2">
+                      {ACCENT_COLORS.map(c => (
+                        <button
+                          key={c.value}
+                          onClick={() => update('accentColor', c.value)}
+                          className={cn(
+                            'flex items-center gap-2 px-3 py-2.5 border transition-all rounded-lg',
+                            settings.accentColor === c.value
+                              ? 'border-intent-primary ring-1 ring-intent-primary/30'
+                              : 'border-intent-primary/15 hover:border-intent-primary/40',
+                          )}
+                        >
+                          <div
+                            className="w-4 h-4 rounded-full border border-white/20"
+                            style={{ background: `hsl(${c.value})` }}
+                          />
+                          <span className="text-[9px] uppercase tracking-wider text-text-ghost/80">{c.label}</span>
+                        </button>
+                      ))}
+                    </div>
+
                     <Heading title="Transparence" subtitle="Opacité des surfaces" />
                     <div className="px-1 space-y-2">
                       <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-text-ghost">
@@ -285,6 +317,25 @@ export default function Settings() {
                   </>
                 )}
 
+                {section === 'affichage' && (
+                  <>
+                    <Heading title="Affichage" subtitle="Résolution et dimensions" />
+                    <div className="grid grid-cols-2 gap-4">
+                      <InfoCard label="Résolution" value={`${window.screen.width} × ${window.screen.height}`} />
+                      <InfoCard label="Fenêtre" value={`${window.innerWidth} × ${window.innerHeight}`} />
+                      <InfoCard label="Ratio pixels" value={`${window.devicePixelRatio}x`} />
+                      <InfoCard label="Profondeur couleur" value={`${window.screen.colorDepth} bits`} />
+                    </div>
+
+                    <Heading title="Barre des tâches" subtitle="Position et comportement" />
+                    <ToggleRow label="Plein écran automatique" checked={settings.autoFullscreen} onChange={v => update('autoFullscreen', v)} />
+                    <Info text="La barre des tâches est fixée en bas. Mode bureau immersif." />
+
+                    <Heading title="Thème" subtitle="Mode d'affichage" />
+                    <Info text="Le mode sombre est le seul mode disponible pour l'esthétique GX." />
+                  </>
+                )}
+
                 {section === 'comportement' && (
                   <>
                     <Heading title="Interactions" subtitle="Réglages des contrôles & gestes" />
@@ -304,6 +355,10 @@ export default function Settings() {
                         onValueChange={(v) => update('iconScale', v[0] / 100)}
                       />
                     </div>
+
+                    <Heading title="Fenêtres" subtitle="Comportement des fenêtres" />
+                    <Info text="Glissez une fenêtre vers les bords pour l'accrocher (snap). Double-cliquez la barre de titre pour maximiser." />
+                    <Info text="Alt+Tab pour basculer entre les fenêtres ouvertes." />
                   </>
                 )}
 
@@ -313,6 +368,16 @@ export default function Settings() {
                     <ToggleRow label="Sons d'interface" checked={settings.soundsEnabled} onChange={v => update('soundsEnabled', v)} />
                     <ToggleRow label="Synthèse vocale (TTS)" checked={settings.ttsEnabled} onChange={v => update('ttsEnabled', v)} />
                     <ToggleRow label="Entrée vocale" checked={settings.voiceInputEnabled} onChange={v => update('voiceInputEnabled', v)} />
+
+                    <Heading title="Effets sonores" subtitle="Liste des sons système" />
+                    <div className="grid grid-cols-2 gap-2">
+                      {['click', 'hover', 'open', 'close', 'success', 'error', 'delete'].map(sound => (
+                        <div key={sound} className="flex items-center justify-between px-3 py-2 border border-intent-primary/10 rounded-lg">
+                          <span className="text-[10px] uppercase tracking-wider text-text-ghost/70">{sound}</span>
+                          <span className="text-[8px] text-text-ghost/40">.wav</span>
+                        </div>
+                      ))}
+                    </div>
                   </>
                 )}
 
@@ -321,8 +386,26 @@ export default function Settings() {
                     <Heading title="Système" subtitle="Intégration OS & comportement" />
                     <ToggleRow label="Plein écran automatique" checked={settings.autoFullscreen} onChange={v => update('autoFullscreen', v)} />
                     <ToggleRow label="Remplacement de l'explorateur Windows" checked={settings.explorerTakeoverEnabled} onChange={v => update('explorerTakeoverEnabled', v)} />
+
+                    <Heading title="Raccourcis clavier" subtitle="Commandes système" />
+                    <div className="space-y-1">
+                      {[
+                        ['Ctrl+K', 'Ouvrir le terminal IA'],
+                        ['Ctrl+Molette', 'Redimensionner les icônes'],
+                        ['Alt+Tab', 'Basculer entre les fenêtres'],
+                        ['Clic droit', 'Menu contextuel'],
+                        ['Double-clic barre titre', 'Maximiser/Restaurer'],
+                        ['Glisser vers bord', 'Accrocher la fenêtre'],
+                      ].map(([key, desc]) => (
+                        <div key={key} className="flex items-center justify-between px-3 py-2 border-b border-border/10">
+                          <span className="text-[10px] text-text-ghost/80">{desc}</span>
+                          <kbd className="text-[9px] px-2 py-0.5 bg-surface-deep/50 border border-intent-primary/20 rounded text-intent-primary font-mono">{key}</kbd>
+                        </div>
+                      ))}
+                    </div>
+
                     <Info text="Mode plein écran : activé automatiquement au lancement Electron." />
-                    <Info text="L'explorateur de fichiers est en cours de développement." />
+                    <Info text="L'explorateur de fichiers est intégré au bureau." />
                   </>
                 )}
 
@@ -348,6 +431,24 @@ export default function Settings() {
                         ))}
                       </div>
                     </div>
+
+                    <Heading title="Architecture" subtitle="Agents spécialisés" />
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { name: 'Thinker', desc: 'Raisonnement & analyse' },
+                        { name: 'Planner', desc: 'Planification multi-étapes' },
+                        { name: 'FileSystem', desc: 'Gestion de fichiers' },
+                        { name: 'System', desc: 'Actions système' },
+                        { name: 'UIBuilder', desc: 'Construction d\'interface' },
+                        { name: 'Notification', desc: 'Alertes & feedback' },
+                      ].map(agent => (
+                        <div key={agent.name} className="px-3 py-2.5 border border-intent-primary/10 rounded-lg">
+                          <div className="text-[10px] uppercase tracking-wider text-intent-primary">{agent.name}</div>
+                          <div className="text-[9px] text-text-ghost/50 mt-0.5">{agent.desc}</div>
+                        </div>
+                      ))}
+                    </div>
+
                     <Info text="Chaîne de fallback : Groq → OpenRouter → DeepSeek → Poe → Lovable → Ollama." />
                   </>
                 )}
@@ -359,7 +460,24 @@ export default function Settings() {
                       <p>HUD cognitif futuriste, bureau immersif, agents spécialisés.</p>
                       <p>Architecture : React 18 · Vite · Electron · Tailwind · Framer Motion.</p>
                       <p>IA : Lovable AI Gateway · Ollama local (fallback offline).</p>
-                      <p className="text-[10px] text-text-ghost/40 mt-4">v3.0 · Settings Store v{settings.version}</p>
+                    </div>
+
+                    <Heading title="Composants" subtitle="Modules du système" />
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        'Bureau immersif', 'Explorateur de fichiers', 'Terminal intégré',
+                        'Barre des tâches', 'Menu radial', 'Menus contextuels',
+                        'Cartes flottantes', 'Orbe d\'activité IA', 'Synthèse vocale',
+                        'Notifications GX', 'Fenêtres snap', 'Diaporama fond',
+                      ].map(mod => (
+                        <div key={mod} className="px-3 py-2 border border-intent-primary/10 rounded-lg text-[10px] text-text-ghost/70">
+                          {mod}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="text-[10px] text-text-ghost/40 mt-6 pt-4 border-t border-border/10">
+                      v3.0 · Settings Store v{settings.version} · {new Date().getFullYear()}
                     </div>
                   </>
                 )}
@@ -390,6 +508,15 @@ function Info({ text }: { text: string }) {
     <div className="flex items-start gap-2 text-[11px] text-text-ghost/80 border-l border-intent-primary/30 pl-3 py-1">
       <span className="text-intent-primary mt-px">▸</span>
       <span>{text}</span>
+    </div>
+  );
+}
+
+function InfoCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="px-4 py-3 border border-intent-primary/10 rounded-lg">
+      <div className="text-[9px] uppercase tracking-[0.2em] text-text-ghost/50">{label}</div>
+      <div className="text-sm font-light text-text-primary mt-1 tabular-nums">{value}</div>
     </div>
   );
 }
