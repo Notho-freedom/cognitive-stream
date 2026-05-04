@@ -34,6 +34,7 @@ import { CogWindow } from './CogWindow';
 import { AIActivityOrb } from './AIActivityOrb';
 import { FileExplorer } from '@/components/explorer';
 import { TerminalWindow } from './TerminalWindow';
+import { DesktopErrorBoundary } from './ErrorBoundary';
 import { useNavigate } from 'react-router-dom';
 
 const brainModeLabels: Record<string, string> = {
