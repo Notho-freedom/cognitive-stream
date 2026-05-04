@@ -381,6 +381,13 @@ function DesktopWidgetShellInner() {
           items={desktopCtxMenu.menu.items}
           onClose={desktopCtxMenu.close}
         />
+
+        {/* Alt+Tab window switcher */}
+        <WindowSwitcher
+          windows={cogWindows.windows}
+          onSelect={(id) => cogWindows.focus(id)}
+          onClose={() => {}}
+        />
       </>
     </MotionConfig>
   );
