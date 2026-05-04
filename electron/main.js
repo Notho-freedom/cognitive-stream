@@ -380,6 +380,7 @@ function cleanShellIntegrationArtifacts() {
 }
 
 function refreshWindowsShellAssociations() {
+  if (process.platform !== 'win32') return;
   const script = `
 $signature = @"
 using System;
