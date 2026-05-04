@@ -412,7 +412,11 @@ function DesktopBackground({ booting }: { booting: boolean }) {
       className="fixed inset-0 transition-[background] duration-1000"
       style={{ background: bg }}
     >
-      {!booting && <DesktopWidgetShellInner />}
+      {!booting && (
+        <DesktopErrorBoundary>
+          <DesktopWidgetShellInner />
+        </DesktopErrorBoundary>
+      )}
     </div>
   );
 }
