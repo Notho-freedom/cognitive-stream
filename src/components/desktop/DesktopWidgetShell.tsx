@@ -34,6 +34,8 @@ import { CogWindow } from './CogWindow';
 import { AIActivityOrb } from './AIActivityOrb';
 import { FileExplorer } from '@/components/explorer';
 import { TerminalWindow } from './TerminalWindow';
+import { WindowSwitcher } from './WindowSwitcher';
+import { DesktopErrorBoundary } from './ErrorBoundary';
 import { useNavigate } from 'react-router-dom';
 
 const brainModeLabels: Record<string, string> = {
@@ -379,6 +381,13 @@ function DesktopWidgetShellInner() {
           items={desktopCtxMenu.menu.items}
           onClose={desktopCtxMenu.close}
         />
+
+        {/* Alt+Tab window switcher */}
+        <WindowSwitcher
+          windows={cogWindows.windows}
+          onSelect={(id) => cogWindows.focus(id)}
+          onClose={() => {}}
+        />
       </>
     </MotionConfig>
   );
@@ -411,7 +420,11 @@ function DesktopBackground({ booting }: { booting: boolean }) {
       className="fixed inset-0 transition-[background] duration-1000"
       style={{ background: bg }}
     >
-      {!booting && <DesktopWidgetShellInner />}
+      {!booting && (
+        <DesktopErrorBoundary>
+          <DesktopWidgetShellInner />
+        </DesktopErrorBoundary>
+      )}
     </div>
   );
 }

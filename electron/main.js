@@ -211,6 +211,9 @@ let mainWindow;
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 function runPowerShell(script, options = {}) {
+  if (process.platform !== 'win32') {
+    throw new Error('PowerShell is only available on Windows');
+  }
   return execFileSync(
     'powershell.exe',
     ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
@@ -223,6 +226,9 @@ function runPowerShell(script, options = {}) {
 }
 
 function runPowerShellAsync(script, options = {}) {
+  if (process.platform !== 'win32') {
+    return Promise.reject(new Error('PowerShell is only available on Windows'));
+  }
   return new Promise((resolve, reject) => {
     execFile(
       'powershell.exe',
@@ -374,6 +380,7 @@ function cleanShellIntegrationArtifacts() {
 }
 
 function refreshWindowsShellAssociations() {
+  if (process.platform !== 'win32') return;
   const script = `
 $signature = @"
 using System;
@@ -1041,50 +1048,69 @@ function bootstrapApp() {
   });
   explorerService.setCacheRootPath(explorerCacheRootPath);
 
-  explorerShell = createExplorerShellManager({
-    app,
-    runPowerShell,
-    refreshWindowsShellAssociations,
-    shellOpenFlag: SHELL_OPEN_FLAG,
-    shellOpenHomeFlag: SHELL_OPEN_HOME_FLAG,
-  });
-  explorerShell.configurePaths({
-    nextSettingsPath: explorerSettingsPath,
-    nextLauncherScriptPath: shellLauncherScriptPath,
-    nextLauncherStatePath: shellLauncherStatePath,
-    nextBackupPath: explorerShellBackupPath,
-  });
-  explorerShell.writeLauncherScript();
+  // Shell integration is Windows-only — skip entirely on other platforms
+  const isWin = process.platform === 'win32';
+  let settings = {};
 
-  let settings = explorerShell.loadSettings();
-  const recovery = explorerShell.recoverOnStartup();
-  if (!recovery.success) {
-    settings = explorerShell.saveSettings({
-      ...settings,
-      explorerTakeoverEnabled: false,
-    });
-  } else {
-    settings = explorerShell.saveSettings(settings);
-  }
-
-  createWindow();
-  explorerShell.writeLauncherState();
-
-  // Force takeover enabled by default for full desktop replacement experience
-  if (!('explorerTakeoverEnabled' in settings) || settings.explorerTakeoverEnabled !== false) {
-    settings = explorerShell.saveSettings({ ...settings, explorerTakeoverEnabled: true });
-  }
-
-  if (settings.explorerTakeoverEnabled) {
+  if (isWin) {
     try {
-      const armResult = explorerShell.armTakeover();
-      if (!armResult.success) {
-        console.warn('[ShellIntegration] armTakeover failed, keeping setting enabled', armResult);
+      explorerShell = createExplorerShellManager({
+        app,
+        runPowerShell,
+        refreshWindowsShellAssociations,
+        shellOpenFlag: SHELL_OPEN_FLAG,
+        shellOpenHomeFlag: SHELL_OPEN_HOME_FLAG,
+      });
+      explorerShell.configurePaths({
+        nextSettingsPath: explorerSettingsPath,
+        nextLauncherScriptPath: shellLauncherScriptPath,
+        nextLauncherStatePath: shellLauncherStatePath,
+        nextBackupPath: explorerShellBackupPath,
+      });
+      explorerShell.writeLauncherScript();
+
+      settings = explorerShell.loadSettings();
+      const recovery = explorerShell.recoverOnStartup();
+      if (!recovery.success) {
+        settings = explorerShell.saveSettings({
+          ...settings,
+          explorerTakeoverEnabled: false,
+        });
       } else {
         settings = explorerShell.saveSettings(settings);
       }
     } catch (error) {
-      console.warn('[ShellIntegration] armTakeover threw', error);
+      console.warn('[ShellIntegration] Bootstrap failed (non-critical)', error);
+      explorerShell = null;
+    }
+  } else {
+    console.log('[ShellIntegration] Skipped — not Windows');
+  }
+
+  createWindow();
+
+  if (isWin && explorerShell) {
+    try {
+      explorerShell.writeLauncherState();
+
+      if (!('explorerTakeoverEnabled' in settings) || settings.explorerTakeoverEnabled !== false) {
+        settings = explorerShell.saveSettings({ ...settings, explorerTakeoverEnabled: true });
+      }
+
+      if (settings.explorerTakeoverEnabled) {
+        try {
+          const armResult = explorerShell.armTakeover();
+          if (!armResult.success) {
+            console.warn('[ShellIntegration] armTakeover failed, keeping setting enabled', armResult);
+          } else {
+            settings = explorerShell.saveSettings(settings);
+          }
+        } catch (error) {
+          console.warn('[ShellIntegration] armTakeover threw', error);
+        }
+      }
+    } catch (error) {
+      console.warn('[ShellIntegration] Post-window setup failed', error);
     }
   }
 

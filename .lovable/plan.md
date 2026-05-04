@@ -1,78 +1,77 @@
 
-# Plan: Integrate New Explorer + Redesign Desktop with Explorer Design Language
+# Plan: Stabilisation Electron + Continuation Bureau
 
-## Overview
+## Phase 1 -- Fix Electron crash on click (critical)
 
-The new `FileExplorer` component is already in the project but not wired into the desktop shell. This plan connects it as a proper CogWindow, extracts its visual language (dark surfaces, `explorer-surface`/`explorer-hover` CSS vars, glassmorphic toolbar/statusbar, sound effects) to rebuild the desktop chrome, and adds a standalone terminal window.
+**Root causes identified:**
 
----
+1. **`vite.config.ts` missing `base: './'`** -- In production mode (`loadFile`), Vite generates absolute paths (`/assets/...`) that resolve to filesystem root under `file://` protocol, causing a blank/broken page. Any interaction triggers errors in a half-loaded app.
 
-## Phase 1 -- Connect Explorer to Desktop Shell
+2. **`explorerShell.recoverOnStartup()` and `armTakeover()` call `runPowerShell` synchronously on non-Windows** -- These calls use `execFileSync('powershell.exe', ...)` which throws immediately on Linux/macOS, crashing `bootstrapApp()` before the window even loads. Guard all PowerShell calls with `process.platform === 'win32'`.
 
-**Goal**: Open the explorer as a CogWindow from taskbar, context menu, and desktop icon double-click.
+3. **Unhandled renderer errors** -- Several components access `window.cognitiveBridge` methods (like `exec`, `listDir`) without proper error boundaries. If any bridge call throws (e.g., missing IPC handler), the whole React tree unmounts.
 
-1. In `DesktopWidgetShell`, add a handler `openExplorer(path?)` that calls `cogWindows.open('explorer', 'EXPLORATEUR', { size: { width: 1000, height: 700 } })`.
-2. In the CogWindows render section, when `win.type === 'explorer'`, render `<FileExplorer embeddedMode="cognitive-stream" onClose={() => cogWindows.close(win.id)} className="h-full" />`.
-3. Wire desktop icon double-click (`onOpenFolder`) to `openExplorer(path)`.
-4. Add "Explorateur" to the radial menu items and the desktop context menu.
-5. Re-add the `open explorer` desktop command in `DesktopCommandBar`.
+**Fixes:**
+- Add `base: './'` to `vite.config.ts`
+- Wrap `bootstrapApp()` platform-specific code with `process.platform === 'win32'` guards
+- Add a top-level React `ErrorBoundary` around `DesktopWidgetShellInner` to catch and display errors instead of crashing
+- Guard `useDesktopIcons` and `useSystemBridge` calls to gracefully handle missing bridge methods
 
-## Phase 2 -- Standalone Terminal Window
+## Phase 2 -- Wallpaper & icon scale regressions
 
-**Goal**: Extract `TerminalPanel` from the explorer and make it openable as its own CogWindow.
+- **Wallpaper custom image**: Verify `getWallpaperBackground` correctly applies the `custom` preset URL; confirm the `DesktopBackground` component passes it through to the `style.background` prop
+- **Ctrl+Scroll icon scale**: Verify `useIconScale` hook is registered in `DesktopWidgetShellInner` (already present at line 64) and that the event listener actually calls `update('iconScale', ...)` on the settings context
 
-1. Create `src/components/desktop/TerminalWindow.tsx` -- a wrapper that renders `TerminalPanel` with a default `cwd` of `'root'` and `cwdName` of `'C:\\'`, passing `onClose` to close the CogWindow.
-2. In `DesktopWidgetShell`, when `win.type === 'terminal'`, render `<TerminalWindow onClose={...} />`.
-3. Add "Terminal" option in the radial menu, context menu, and `Ctrl+`` shortcut to open it.
+## Phase 3 -- Desktop completion (features)
 
-## Phase 3 -- Desktop Redesign with Explorer Design Language
+**3a. Taskbar improvements:**
+- Add system tray area (clock, volume indicator, network indicator)
+- Add window previews on hover over taskbar items
+- Animate window minimize/restore from taskbar position
 
-**Goal**: Rebuild the desktop taskbar, context menus, and window frames using the explorer's visual system (dark `hsl(220 24% 3%)` surfaces, `border-border/40`, `font-light text-[12px]`, explorer CSS variables, sound feedback).
+**3b. Window management:**
+- Window snapping (drag to screen edges for half/quarter layout)
+- Snap indicators (visual guides when dragging near edges)
+- Alt+Tab window switcher overlay
+- Proper minimize animation (shrink to taskbar)
 
-### 3a. Taskbar Redesign
-- Restyle `DesktopTaskbar` to match the explorer's `TabBar`/`StatusBar` aesthetic: `bg-[hsl(220_24%_3%)]` base, `border-border/40`, same `text-[12px] font-light` typography.
-- Replace the SVG diamond start button with an icon consistent with explorer iconography.
-- Add sound feedback (`play('click')`, `playHover`) from the shared sound system on all taskbar interactions.
-- Show the system tray area (clock, brain status, bridge status) in the same `StatusBar` style as the explorer's bottom bar.
+**3c. Context menus completion:**
+- File-specific context menus (open, rename, delete, properties)
+- Taskbar context menu (task manager, settings)
+- Icon-specific context menus with real actions (open with, pin to taskbar)
 
-### 3b. Window Frames (CogWindow + WindowFrame)
-- Update `CogWindow` and `WindowFrame` title bars to match the explorer's `TabBar` style: same background color, same minimize/maximize/close button styling (including red hover on close).
-- Use `hsl(var(--explorer-surface))` for window surfaces and `hsl(var(--explorer-hover))` for hover states.
+**3d. Settings page completion:**
+- Move all configuration from old side panel into Settings page sections
+- Add wallpaper browser with file picker (already partially done)
+- Add theme/accent color picker with live preview
+- Add taskbar position/behavior settings
+- Add display/resolution information section
 
-### 3c. Context Menus
-- Restyle `CogContextMenu` to use the explorer's `glass-menu` class and `text-[12px] font-light` styling with `hsl(var(--explorer-hover))` on hover.
+**3e. Desktop ambient & polish:**
+- Selection rectangle for multi-select on desktop (already exists, verify wiring)
+- Right-click "New folder" and "New file" actually create items
+- Sort icons by name/size/date
+- Desktop icon label editing (slow double-click to rename)
 
-### 3d. Desktop Icons
-- Apply `font-light text-[11px]` to icon labels.
-- Add `playHover` on icon hover and `play('dblclick')` on double-click, using the shared sound engine.
+## Files to modify
 
-### 3e. Command Bar
-- Harmonize `DesktopCommandBar` visual treatment with the explorer surface/hover variables for consistency.
+| File | Changes |
+|------|---------|
+| `vite.config.ts` | Add `base: './'` |
+| `electron/main.js` | Platform guards around PowerShell/shell-integration code |
+| `src/components/desktop/DesktopWidgetShell.tsx` | Add ErrorBoundary wrapper |
+| `src/components/desktop/DesktopTaskbar.tsx` | System tray, window previews |
+| `src/components/desktop/CogWindow.tsx` | Snap-to-edge, minimize animation |
+| `src/components/desktop/DesktopIconsLayer.tsx` | Context menus, rename, sort |
+| `src/components/desktop/CogContextMenu.tsx` | File-specific menu items |
+| `src/pages/Settings.tsx` | Complete all sections |
+| `src/hooks/useIconScale.ts` | Verify integration |
+| `src/hooks/useDesktopIcons.ts` | Guard bridge calls |
 
-## Phase 4 -- Sound Integration
+## New files
 
-**Goal**: Ensure the desktop shell uses the same sound engine as the explorer.
-
-- Import `useSound` in components that currently use `useSoundEffects` where appropriate, or ensure `useSoundEffects` delegates to the same `@/lib/sounds` engine.
-- Add `play('open')` when opening a CogWindow, `play('close')` when closing, `play('click')` for taskbar buttons.
-
----
-
-## Files to Create
-- `src/components/desktop/TerminalWindow.tsx`
-
-## Files to Modify
-- `src/components/desktop/DesktopWidgetShell.tsx` (explorer + terminal window types, openExplorer handler)
-- `src/components/desktop/DesktopTaskbar.tsx` (visual redesign)
-- `src/components/desktop/CogWindow.tsx` (title bar restyle)
-- `src/components/desktop/WindowFrame.tsx` (title bar restyle)
-- `src/components/desktop/CogContextMenu.tsx` (glass-menu styling)
-- `src/components/desktop/DesktopIconsLayer.tsx` (sound + typography)
-- `src/components/desktop/DesktopCommandBar.tsx` (visual harmonization)
-
-## Result
-1. Explorer opens in a draggable/resizable CogWindow from multiple entry points
-2. Terminal opens as standalone window
-3. Entire desktop uses the explorer's modern-futuristic aesthetic consistently
-4. Sound feedback everywhere (click, hover, open, close)
-5. Cohesive design language across all surfaces
+| File | Purpose |
+|------|---------|
+| `src/components/desktop/ErrorBoundary.tsx` | Catch-all error boundary for desktop shell |
+| `src/components/desktop/WindowSwitcher.tsx` | Alt+Tab overlay |
+| `src/components/desktop/SystemTray.tsx` | Clock, indicators in taskbar |

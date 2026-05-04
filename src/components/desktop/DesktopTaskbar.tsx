@@ -1,11 +1,12 @@
-import { memo, useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Minus, Square, X, TerminalSquare, FolderOpen, Settings, TestTube2, Power } from 'lucide-react';
+import { memo, useState, useRef } from 'react';
+import { motion } from 'framer-motion';
+import { TerminalSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSystemBridge } from '@/hooks/useSystemBridge';
 import { useSound } from '@/hooks/useSound';
 import type { CogWindowState } from '@/hooks/useCogWindowManager';
 import { StartRadialMenu, type RadialItem } from './StartRadialMenu';
+import { SystemTray } from './SystemTray';
 
 interface DesktopTaskbarProps {
   brainMode: string | null;
@@ -23,21 +24,22 @@ interface DesktopTaskbarProps {
   isStreaming?: boolean;
 }
 
+const WINDOW_ICONS: Record<string, string> = {
+  explorer: '📁',
+  terminal: '⌘',
+  tests: '⊛',
+};
+
 export const DesktopTaskbar = memo(function DesktopTaskbar({
   brainMode, isAutonomous, autonomyCount, autonomyLimit, activeTasks,
   windows, onFocusWindow, onMinimizeWindow, onCloseWindow, radialItems,
   onToggleCommandBar, isLoading, isStreaming,
 }: DesktopTaskbarProps) {
-  const { isAvailable, systemInfo } = useSystemBridge();
+  const { isAvailable } = useSystemBridge();
   const { play, playHover } = useSound();
-  const [time, setTime] = useState(() => new Date());
   const [radial, setRadial] = useState<{ open: boolean; x: number; y: number }>({ open: false, x: 0, y: 0 });
+  const [hoveredWindow, setHoveredWindow] = useState<string | null>(null);
   const startBtnRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    const interval = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   const openRadial = () => {
     play('click');
@@ -47,13 +49,6 @@ export const DesktopTaskbar = memo(function DesktopTaskbar({
   };
 
   const brainActive = isLoading || isStreaming;
-
-  const windowIcon = (type: string) => {
-    if (type === 'explorer') return '📁';
-    if (type === 'terminal') return '⌘';
-    if (type === 'tests') return '⊛';
-    return '◇';
-  };
 
   return (
     <>
@@ -102,67 +97,61 @@ export const DesktopTaskbar = memo(function DesktopTaskbar({
           {/* Open windows */}
           <div className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto scrollbar-none">
             {windows.map(win => (
-              <button
-                key={win.id}
-                onClick={() => {
-                  play('click');
-                  if (win.minimized) onFocusWindow(win.id);
-                  else if (win.focused) onMinimizeWindow(win.id);
-                  else onFocusWindow(win.id);
-                }}
-                onMouseEnter={playHover}
-                className={cn(
-                  'h-7 px-2.5 flex items-center gap-1.5 rounded text-[11px] font-light transition-colors min-w-[100px] max-w-[180px]',
-                  win.focused && !win.minimized
-                    ? 'bg-[hsl(var(--explorer-hover))] text-foreground border-b-2 border-primary/60'
-                    : 'text-muted-foreground hover:bg-[hsl(var(--explorer-hover))] hover:text-foreground',
+              <div key={win.id} className="relative">
+                <button
+                  onClick={() => {
+                    play('click');
+                    if (win.minimized) onFocusWindow(win.id);
+                    else if (win.focused) onMinimizeWindow(win.id);
+                    else onFocusWindow(win.id);
+                  }}
+                  onMouseEnter={() => { playHover(); setHoveredWindow(win.id); }}
+                  onMouseLeave={() => setHoveredWindow(null)}
+                  className={cn(
+                    'h-7 px-2.5 flex items-center gap-1.5 rounded text-[11px] font-light transition-colors min-w-[100px] max-w-[180px]',
+                    win.focused && !win.minimized
+                      ? 'bg-[hsl(var(--explorer-hover))] text-foreground border-b-2 border-primary/60'
+                      : 'text-muted-foreground hover:bg-[hsl(var(--explorer-hover))] hover:text-foreground',
+                  )}
+                >
+                  <span className="text-xs">{WINDOW_ICONS[win.type] ?? '◇'}</span>
+                  <span className="truncate">{win.title}</span>
+                </button>
+
+                {/* Window preview tooltip */}
+                {hoveredWindow === win.id && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg border border-border/30 pointer-events-none z-[60]"
+                    style={{
+                      background: 'hsl(220 24% 5% / 0.96)',
+                      backdropFilter: 'blur(16px)',
+                      minWidth: 160,
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span>{WINDOW_ICONS[win.type] ?? '◇'}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[10px] font-light text-foreground truncate">{win.title}</div>
+                        <div className="text-[8px] text-muted-foreground/60 mt-0.5">
+                          {win.minimized ? 'Réduit' : win.maximized ? 'Maximisé' : `${win.size.width}×${win.size.height}`}
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
                 )}
-              >
-                <span className="text-xs">{windowIcon(win.type)}</span>
-                <span className="truncate">{win.title}</span>
-              </button>
+              </div>
             ))}
           </div>
 
-          {/* System tray */}
-          <div className="flex items-center gap-1.5 shrink-0 ml-2">
-            {/* Brain status */}
-            <div className="flex items-center gap-1.5 px-1.5 h-7 rounded text-[10px] font-mono">
-              <motion.div
-                className={cn(
-                  'w-2 h-2 rounded-full',
-                  brainActive ? 'bg-primary' : 'bg-muted-foreground/30',
-                )}
-                animate={brainActive ? {
-                  scale: [1, 1.4, 1],
-                  opacity: [0.6, 1, 0.6],
-                } : {}}
-                transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-              />
-              <span className="text-muted-foreground/70 uppercase tracking-wider">
-                {brainMode ?? 'VEILLE'}
-              </span>
-            </div>
-
-            {/* Bridge */}
-            <div className={cn(
-              'w-1.5 h-1.5 rounded-full',
-              isAvailable ? 'bg-emerald-400' : 'bg-muted-foreground/30',
-            )} title={isAvailable ? 'Système connecté' : 'Mode web'} />
-
-            {/* Separator */}
-            <div className="w-px h-5 bg-border/30" />
-
-            {/* Clock */}
-            <div className="flex flex-col items-end px-1.5 h-7 justify-center">
-              <span className="text-[11px] font-light tabular-nums text-foreground/90 leading-tight">
-                {time.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-              <span className="text-[8px] text-muted-foreground/60 leading-tight">
-                {time.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-              </span>
-            </div>
-          </div>
+          {/* System Tray */}
+          <SystemTray
+            brainMode={brainMode}
+            brainActive={!!brainActive}
+            isConnected={isAvailable}
+          />
         </div>
       </motion.div>
 
