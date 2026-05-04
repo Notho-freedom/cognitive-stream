@@ -211,6 +211,9 @@ let mainWindow;
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 function runPowerShell(script, options = {}) {
+  if (process.platform !== 'win32') {
+    throw new Error('PowerShell is only available on Windows');
+  }
   return execFileSync(
     'powershell.exe',
     ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
@@ -223,6 +226,9 @@ function runPowerShell(script, options = {}) {
 }
 
 function runPowerShellAsync(script, options = {}) {
+  if (process.platform !== 'win32') {
+    return Promise.reject(new Error('PowerShell is only available on Windows'));
+  }
   return new Promise((resolve, reject) => {
     execFile(
       'powershell.exe',
