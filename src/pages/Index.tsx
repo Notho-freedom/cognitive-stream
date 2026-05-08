@@ -37,8 +37,14 @@ export default function Index() {
         <NotificationQueue position="top-right" />
 
         {/* GX Status Bridge - Top */}
-        <div className="relative z-20 mb-6">
+        <div className="relative z-20 mb-6 flex items-center justify-between gap-4">
           <CogStatusBridge className="inline-block" />
+          <Link
+            to="/desktop"
+            className="px-3 py-1.5 text-[10px] font-light tracking-[0.2em] uppercase rounded border border-[hsl(187,85%,53%)]/30 text-[hsl(187,85%,53%)] hover:bg-[hsl(187,85%,53%)]/10 transition-colors"
+          >
+            Ouvrir le bureau →
+          </Link>
         </div>
 
         {/* Pure Cognitive Interface - Centered */}
