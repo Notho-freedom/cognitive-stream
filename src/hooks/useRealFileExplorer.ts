@@ -120,7 +120,32 @@ function pathSegments(path: string) {
   if (path === REAL_VIRTUAL_PATHS.network) return ['Reseau'];
   if (path === REAL_VIRTUAL_PATHS.quickAccess) return ['Acces rapide'];
   if (path === REAL_VIRTUAL_PATHS.trash) return ['Corbeille'];
-  return path.replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean);
+  if (fileSystem[path]) {
+    const names: string[] = [];
+    let current: string | null | undefined = path;
+    while (current && fileSystem[current]) {
+      names.unshift(fileSystem[current].name);
+      current = fileSystem[current].parentId;
+    }
+    return names.length ? names : ['Ce PC'];
+  }
+  return path.replace(/[\/]+$/, '').split(/[\/]/).filter(Boolean);
+}
+
+function mockItemToFile(id: string): FileItem | null {
+  const item = fileSystem[id];
+  if (!item) return null;
+  return {
+    ...item,
+    path: item.path ?? item.id,
+    targetPath: item.type === 'folder' ? item.id : item.path ?? item.id,
+    children: item.children ?? (item.type === 'folder' ? [] : undefined),
+  };
+}
+
+function resolveMockPath(path: string) {
+  const quick = QUICK_ACCESS.find((item) => item.path === path || item.mockPath === path || item.id === path);
+  return quick?.mockPath ?? path;
 }
 
 function sortFiles(files: FileItem[], field: SortField, direction: SortDirection) {
