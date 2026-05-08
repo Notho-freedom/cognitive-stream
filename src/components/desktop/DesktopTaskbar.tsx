@@ -57,7 +57,7 @@ export const DesktopTaskbar = memo(function DesktopTaskbar({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
-        className="fixed bottom-0 left-0 right-0 z-50 pointer-events-auto"
+        className="fixed top-0 left-0 right-0 z-50 pointer-events-auto"
       >
         <div
           className="flex items-center h-10 px-2 select-none border-b border-border/40"
@@ -170,7 +170,7 @@ export const DesktopTaskbar = memo(function DesktopTaskbar({
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.12 }}
-                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg border border-border/30 pointer-events-none z-[60]"
+                    className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-2 rounded-lg border border-border/30 pointer-events-none z-[60]"
                     style={{
                       background: 'hsl(220 24% 5% / 0.96)',
                       backdropFilter: 'blur(16px)',
