@@ -35,7 +35,7 @@ import { AIActivityOrb } from './AIActivityOrb';
 import { FileExplorer } from '@/components/explorer';
 import { TerminalWindow } from './TerminalWindow';
 import { WindowSwitcher } from './WindowSwitcher';
-import { DesktopErrorBoundary } from './ErrorBoundary';
+import { DesktopErrorBoundary, GlobalErrorTracer } from './ErrorBoundary';
 import { useNavigate } from 'react-router-dom';
 
 const brainModeLabels: Record<string, string> = {
@@ -246,6 +246,7 @@ function DesktopWidgetShellInner() {
   return (
     <MotionConfig reducedMotion={settings.reduceMotion ? 'always' : 'user'}>
       <>
+        <GlobalErrorTracer />
         <AutonomyConfirmDialog
           open={Boolean(pendingConfirmation)}
           action={pendingConfirmation?.action}
@@ -315,24 +316,30 @@ function DesktopWidgetShellInner() {
                 onPositionChange={cogWindows.updatePosition}
               >
                 {win.type === 'tests' && (
-                  <div className="p-4 h-full overflow-auto">
-                    <CognitiveTestPanel
-                      onPushSchema={(s) => floatingCards.pushSchema(s)}
-                      onPushError={(m) => floatingCards.pushError(m)}
-                      onPushThought={(t) => floatingCards.pushThought(t)}
-                    />
-                  </div>
+                  <DesktopErrorBoundary label="TESTS">
+                    <div className="p-4 h-full overflow-auto">
+                      <CognitiveTestPanel
+                        onPushSchema={(s) => floatingCards.pushSchema(s)}
+                        onPushError={(m) => floatingCards.pushError(m)}
+                        onPushThought={(t) => floatingCards.pushThought(t)}
+                      />
+                    </div>
+                  </DesktopErrorBoundary>
                 )}
                 {win.type === 'explorer' && (
-                  <FileExplorer
-                    embeddedMode="cognitive-stream"
-                    onClose={() => handleWindowClose(win.id)}
-                    className="h-full"
-                    showWindowChrome={false}
-                  />
+                  <DesktopErrorBoundary label="EXPLORATEUR">
+                    <FileExplorer
+                      embeddedMode="cognitive-stream"
+                      onClose={() => handleWindowClose(win.id)}
+                      className="h-full"
+                      showWindowChrome={false}
+                    />
+                  </DesktopErrorBoundary>
                 )}
                 {win.type === 'terminal' && (
-                  <TerminalWindow onClose={() => handleWindowClose(win.id)} />
+                  <DesktopErrorBoundary label="TERMINAL">
+                    <TerminalWindow onClose={() => handleWindowClose(win.id)} />
+                  </DesktopErrorBoundary>
                 )}
               </CogWindow>
             ))}
