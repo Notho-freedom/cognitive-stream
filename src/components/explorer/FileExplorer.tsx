@@ -218,14 +218,6 @@ export function FileExplorer({
               showWindowControls={!isCognitiveHost}
             />
           )}
-          {embeddedMode !== 'standalone' && !showWindowChrome && false && (
-            <ExplorerTab
-              active
-              initialFolderId={initialFolderId}
-              onFolderChange={(fid) => onNavigate?.(fid)}
-              onOpenCommandPalette={() => {}}
-            />
-          )}
         </div>
         <ExplorerToaster />
       </TooltipProvider>
