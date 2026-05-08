@@ -77,12 +77,23 @@ function iconsEqual(a: DesktopIcon[], b: DesktopIcon[]) {
   return true;
 }
 
+const MOCK_ICONS: DesktopIcon[] = [
+  { id: 'mock:explorer', name: 'Explorateur', path: 'mock:explorer', isDirectory: true, isFile: false, size: 0, modified: new Date() },
+  { id: 'mock:documents', name: 'Documents', path: 'mock:documents', isDirectory: true, isFile: false, size: 0, modified: new Date() },
+  { id: 'mock:downloads', name: 'Téléchargements', path: 'mock:downloads', isDirectory: true, isFile: false, size: 0, modified: new Date() },
+  { id: 'mock:images', name: 'Images', path: 'mock:images', isDirectory: true, isFile: false, size: 0, modified: new Date() },
+  { id: 'mock:terminal', name: 'Terminal.lnk', path: 'mock:terminal', isDirectory: false, isFile: true, size: 0, modified: new Date() },
+  { id: 'mock:settings', name: 'Paramètres.lnk', path: 'mock:settings', isDirectory: false, isFile: true, size: 0, modified: new Date() },
+  { id: 'mock:notes', name: 'Notes.txt', path: 'mock:notes', isDirectory: false, isFile: true, size: 1024, modified: new Date() },
+];
+
 export function useDesktopIcons(enabled = true) {
   const { isAvailable, systemInfo, listDir } = useSystemBridge();
 
   // Hydrate immediately from cache for instant first paint
   const initialCache = useMemo(() => loadCache(), []);
   const [icons, setIcons] = useState<DesktopIcon[]>(() => {
+    if (!isAvailable) return MOCK_ICONS;
     if (!initialCache) return [];
     return initialCache.icons.map(i => ({
       ...i,
