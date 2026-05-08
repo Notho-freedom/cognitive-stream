@@ -40,10 +40,10 @@ function getSnapStyle(zone: SnapZone): React.CSSProperties | null {
   const taskbarH = 40;
   const h = `calc(100vh - ${taskbarH}px)`;
   switch (zone) {
-    case 'left': return { position: 'fixed', left: 0, top: 0, width: '50vw', height: h };
-    case 'right': return { position: 'fixed', right: 0, top: 0, width: '50vw', height: h };
-    case 'top-left': return { position: 'fixed', left: 0, top: 0, width: '50vw', height: `calc(50vh - ${taskbarH / 2}px)` };
-    case 'top-right': return { position: 'fixed', right: 0, top: 0, width: '50vw', height: `calc(50vh - ${taskbarH / 2}px)` };
+    case 'left': return { position: 'fixed', left: 0, top: taskbarH, width: '50vw', height: h };
+    case 'right': return { position: 'fixed', right: 0, top: taskbarH, width: '50vw', height: h };
+    case 'top-left': return { position: 'fixed', left: 0, top: taskbarH, width: '50vw', height: `calc(50vh - ${taskbarH / 2}px)` };
+    case 'top-right': return { position: 'fixed', right: 0, top: taskbarH, width: '50vw', height: `calc(50vh - ${taskbarH / 2}px)` };
     default: return null;
   }
 }
@@ -130,7 +130,7 @@ export const CogWindow = memo(function CogWindow({
   const isSnapped = !!snapStyle;
 
   const style = win.maximized
-    ? { position: 'fixed' as const, inset: 0, bottom: 40, zIndex: win.zIndex }
+    ? { position: 'fixed' as const, left: 0, right: 0, top: 40, bottom: 0, zIndex: win.zIndex }
     : isSnapped
       ? { ...snapStyle, zIndex: win.zIndex }
       : {

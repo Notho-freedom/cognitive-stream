@@ -19,7 +19,7 @@ interface Props {
 
 const BASE_CELL_W = 88;
 const BASE_CELL_H = 92;
-const PADDING = 24;
+const PADDING = 56;
 const BOTTOM_RESERVED = 56;
 
 /**
