@@ -286,7 +286,7 @@ function DesktopWidgetShellInner() {
         />
 
         {/* Floating Response Cards */}
-        <div className="fixed inset-0 pointer-events-none z-40" style={{ bottom: TASKBAR_HEIGHT }}>
+        <div className="fixed inset-0 pointer-events-none z-40" style={{ top: TASKBAR_HEIGHT }}>
           <AnimatePresence mode="popLayout">
             {floatingCards.cards.map((card) => (
               <FloatingResponseCard
@@ -303,7 +303,7 @@ function DesktopWidgetShellInner() {
         </div>
 
         {/* CogWindows */}
-        <div className="fixed inset-0 pointer-events-none z-30" style={{ bottom: TASKBAR_HEIGHT }}>
+        <div className="fixed inset-0 pointer-events-none z-30" style={{ top: TASKBAR_HEIGHT }}>
           <AnimatePresence>
             {cogWindows.windows.map((win) => (
               <CogWindow

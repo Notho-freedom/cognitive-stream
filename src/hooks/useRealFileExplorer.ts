@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSystemBridge } from '@/hooks/useSystemBridge';
 import type { FileItem, FileType, SortDirection, SortField, ViewMode } from '@/types/fileExplorer';
+import { fileSystem, drives as mockDrives, networkLocations } from '@/data/mockFileSystem';
+import { localServers } from '@/data/localServers';
 
 const DIRECTORY_CACHE_TTL = 3500;
 const directoryCache = new Map<string, { timestamp: number; files: FileItem[] }>();
@@ -13,12 +15,12 @@ export const REAL_VIRTUAL_PATHS = {
 } as const;
 
 const QUICK_ACCESS = [
-  { id: 'qa-desktop', name: 'Bureau', path: '~/Desktop', type: 'folder' as FileType },
-  { id: 'qa-downloads', name: 'Telechargements', path: '~/Downloads', type: 'folder' as FileType },
-  { id: 'qa-documents', name: 'Documents', path: '~/Documents', type: 'folder' as FileType },
-  { id: 'qa-pictures', name: 'Images', path: '~/Pictures', type: 'folder' as FileType },
-  { id: 'qa-music', name: 'Musique', path: '~/Music', type: 'folder' as FileType },
-  { id: 'qa-videos', name: 'Videos', path: '~/Videos', type: 'folder' as FileType },
+  { id: 'desktop', name: 'Bureau', path: '~/Desktop', mockPath: 'desktop', type: 'folder' as FileType },
+  { id: 'downloads', name: 'Telechargements', path: '~/Downloads', mockPath: 'downloads', type: 'folder' as FileType },
+  { id: 'documents', name: 'Documents', path: '~/Documents', mockPath: 'documents', type: 'folder' as FileType },
+  { id: 'pictures', name: 'Images', path: '~/Pictures', mockPath: 'pictures', type: 'folder' as FileType },
+  { id: 'music', name: 'Musique', path: '~/Music', mockPath: 'music', type: 'folder' as FileType },
+  { id: 'videos', name: 'Videos', path: '~/Videos', mockPath: 'videos', type: 'folder' as FileType },
 ];
 
 interface RealDrive {
@@ -104,6 +106,7 @@ function joinPath(basePath: string, name: string) {
 
 function parentPath(path: string) {
   if (isVirtualPath(path)) return REAL_VIRTUAL_PATHS.thisPc;
+  if (fileSystem[path]?.parentId) return fileSystem[path].parentId!;
   const trimmed = path.replace(/[\\/]+$/, '');
   if (/^[A-Za-z]:$/.test(trimmed) || /^[A-Za-z]:\\?$/.test(path)) return REAL_VIRTUAL_PATHS.thisPc;
   const index = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/'));
@@ -117,7 +120,32 @@ function pathSegments(path: string) {
   if (path === REAL_VIRTUAL_PATHS.network) return ['Reseau'];
   if (path === REAL_VIRTUAL_PATHS.quickAccess) return ['Acces rapide'];
   if (path === REAL_VIRTUAL_PATHS.trash) return ['Corbeille'];
-  return path.replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean);
+  if (fileSystem[path]) {
+    const names: string[] = [];
+    let current: string | null | undefined = path;
+    while (current && fileSystem[current]) {
+      names.unshift(fileSystem[current].name);
+      current = fileSystem[current].parentId;
+    }
+    return names.length ? names : ['Ce PC'];
+  }
+  return path.replace(/[\/]+$/, '').split(/[\/]/).filter(Boolean);
+}
+
+function mockItemToFile(id: string): FileItem | null {
+  const item = fileSystem[id];
+  if (!item) return null;
+  return {
+    ...item,
+    path: item.path ?? item.id,
+    targetPath: item.type === 'folder' ? item.id : item.path ?? item.id,
+    children: item.children ?? (item.type === 'folder' ? [] : undefined),
+  };
+}
+
+function resolveMockPath(path: string) {
+  const quick = QUICK_ACCESS.find((item) => item.path === path || item.mockPath === path || item.id === path);
+  return quick?.mockPath ?? path;
 }
 
 function sortFiles(files: FileItem[], field: SortField, direction: SortDirection) {
@@ -135,8 +163,9 @@ function sortFiles(files: FileItem[], field: SortField, direction: SortDirection
 
 export function useRealFileExplorer(initialPath?: string) {
   const bridge = useSystemBridge();
-  const [currentPath, setCurrentPath] = useState(initialPath || REAL_VIRTUAL_PATHS.thisPc);
-  const [history, setHistory] = useState<string[]>([initialPath || REAL_VIRTUAL_PATHS.thisPc]);
+  const initialResolvedPath = resolveMockPath(initialPath || REAL_VIRTUAL_PATHS.thisPc);
+  const [currentPath, setCurrentPath] = useState(initialResolvedPath);
+  const [history, setHistory] = useState<string[]>([initialResolvedPath]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
@@ -159,7 +188,25 @@ export function useRealFileExplorer(initialPath?: string) {
   const requestIdRef = useRef<string | null>(null);
 
   const refreshSystemSnapshots = useCallback(async () => {
-    if (!bridge.isAvailable) return;
+    if (!bridge.isAvailable) {
+      setDrives(mockDrives.map((drive) => ({
+        mount: drive.rootId,
+        label: drive.name,
+        total: drive.totalSpace * 1024 ** 3,
+        used: drive.usedSpace * 1024 ** 3,
+        usage: Math.round((drive.usedSpace / drive.totalSpace) * 100),
+        fsType: drive.fileSystem,
+      })));
+      setNetworkMounts(networkLocations.map((location) => ({ name: location.name, root: location.rootId, displayRoot: location.path })));
+      setLocalServices(localServers.map((server) => ({
+        address: '127.0.0.1',
+        port: server.port,
+        pid: server.pid,
+        processName: server.name,
+        url: server.url,
+      })));
+      return;
+    }
     const [driveResult, networkResult, serviceResult] = await Promise.all([
       bridge.getDrives(), bridge.getNetworkMounts(), bridge.getListeningServices(),
     ]);
@@ -191,23 +238,45 @@ export function useRealFileExplorer(initialPath?: string) {
       driveInfo: drive,
     } as FileItem));
     const quickItems = QUICK_ACCESS.map((item): FileItem => ({
-      id: item.path, path: item.path, targetPath: item.path, name: item.name, type: item.type,
+      id: item.mockPath, path: item.path, targetPath: item.mockPath, name: item.name, type: item.type,
       size: 0, dateModified: new Date(), dateCreated: new Date(), parentId: null, children: [], isHidden: false,
     }));
     return [...quickItems, ...driveItems];
   }, [drives, localServices, networkMounts]);
 
   const loadDirectory = useCallback(async (path: string, force = false) => {
-    if (!bridge.isAvailable) return;
-    if (isVirtualPath(path)) {
-      setFiles(buildVirtualFiles(path));
+    const resolvedPath = resolveMockPath(path);
+    if (!bridge.isAvailable && !isVirtualPath(resolvedPath)) {
+      const folder = fileSystem[resolvedPath];
+      if (!folder || folder.type !== 'folder') {
+        setFiles([]);
+        setError(folder ? null : 'Emplacement fictif introuvable');
+        setIsLoading(false);
+        setSelectedItems([]);
+        return;
+      }
+      setFiles((folder.children || []).map(mockItemToFile).filter(Boolean) as FileItem[]);
+      setIsLoading(false);
+      setError(null);
+      setSelectedItems([]);
+      return;
+    }
+    if (!bridge.isAvailable && isVirtualPath(resolvedPath)) {
+      setFiles(buildVirtualFiles(resolvedPath));
+      setIsLoading(false);
+      setError(null);
+      setSelectedItems([]);
+      return;
+    }
+    if (isVirtualPath(resolvedPath)) {
+      setFiles(buildVirtualFiles(resolvedPath));
       setIsLoading(false);
       setError(null);
       setSelectedItems([]);
       return;
     }
 
-    const cached = directoryCache.get(path);
+    const cached = directoryCache.get(resolvedPath);
     if (!force && cached && Date.now() - cached.timestamp < DIRECTORY_CACHE_TTL) {
       setFiles(cached.files);
       setError(null);
@@ -220,11 +289,11 @@ export function useRealFileExplorer(initialPath?: string) {
     if (cached?.files.length) setFiles(cached.files);
     setIsLoading(true);
     try {
-      const result = await bridge.listDir(path, { showHidden: true, requestId });
+      const result = await bridge.listDir(resolvedPath, { showHidden: true, requestId });
       if (result.requestId && requestIdRef.current !== result.requestId) return;
       if (!result.success && !(result.items?.length || result.data?.length)) throw new Error(result.error || 'Impossible de charger le dossier');
       const nextFiles = (result.items || result.data || []).map(dirItemToFile);
-      directoryCache.set(path, { timestamp: Date.now(), files: nextFiles });
+      directoryCache.set(resolvedPath, { timestamp: Date.now(), files: nextFiles });
       setFiles(nextFiles);
       setError(result.success ? null : result.error || null);
       setSelectedItems([]);
@@ -249,12 +318,13 @@ export function useRealFileExplorer(initialPath?: string) {
   }, [bridge, currentPath, loadDirectory]);
 
   const navigateTo = useCallback((path: string, push = true) => {
-    setCurrentPath(path);
+    const nextPath = resolveMockPath(path);
+    setCurrentPath(nextPath);
     setSearchQuery('');
     setRenamingId(null);
     if (push) {
       setHistory((prev) => {
-        const next = [...prev.slice(0, historyIndex + 1), path];
+        const next = [...prev.slice(0, historyIndex + 1), nextPath];
         setHistoryIndex(next.length - 1);
         return next;
       });

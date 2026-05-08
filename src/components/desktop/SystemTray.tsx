@@ -101,7 +101,7 @@ export const SystemTray = memo(function SystemTray({
         <motion.div
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
-          className="absolute bottom-12 right-2 w-64 p-4 rounded-lg border border-border/40 z-[60]"
+          className="absolute top-12 right-2 w-64 p-4 rounded-lg border border-border/40 z-[60]"
           style={{
             background: 'hsl(220 24% 5% / 0.96)',
             backdropFilter: 'blur(24px)',

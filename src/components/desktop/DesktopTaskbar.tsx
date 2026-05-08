@@ -1,6 +1,6 @@
 import { memo, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { TerminalSquare } from 'lucide-react';
+import { Folder, Grid3X3, Monitor, Settings, TerminalSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSystemBridge } from '@/hooks/useSystemBridge';
 import { useSound } from '@/hooks/useSound';
@@ -39,13 +39,14 @@ export const DesktopTaskbar = memo(function DesktopTaskbar({
   const { play, playHover } = useSound();
   const [radial, setRadial] = useState<{ open: boolean; x: number; y: number }>({ open: false, x: 0, y: 0 });
   const [hoveredWindow, setHoveredWindow] = useState<string | null>(null);
+  const [workspace, setWorkspace] = useState(1);
   const startBtnRef = useRef<HTMLButtonElement>(null);
 
   const openRadial = () => {
     play('click');
     if (!startBtnRef.current) return;
     const r = startBtnRef.current.getBoundingClientRect();
-    setRadial({ open: true, x: r.left + r.width / 2, y: r.top - 8 });
+    setRadial({ open: true, x: r.left, y: r.bottom + 8 });
   };
 
   const brainActive = isLoading || isStreaming;
@@ -56,29 +57,51 @@ export const DesktopTaskbar = memo(function DesktopTaskbar({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
-        className="fixed bottom-0 left-0 right-0 z-50 pointer-events-auto"
+        className="fixed top-0 left-0 right-0 z-50 pointer-events-auto"
       >
         <div
-          className="flex items-center h-10 px-2 select-none border-t border-border/40"
+          className="flex items-center h-10 px-2 select-none border-b border-border/40"
           style={{
             background: 'hsl(220 24% 3% / 0.92)',
             backdropFilter: 'blur(24px) saturate(1.4)',
           }}
         >
-          {/* Start button */}
+          {/* Kali/XFCE-style applications menu */}
           <button
             ref={startBtnRef}
             onClick={openRadial}
             onMouseEnter={playHover}
-            className="h-7 w-7 flex items-center justify-center rounded hover:bg-[hsl(var(--explorer-hover))] transition-colors mr-1"
+            className="h-7 px-2 flex items-center gap-1.5 rounded hover:bg-[hsl(var(--explorer-hover))] transition-colors mr-1 text-[11px] uppercase tracking-wider text-foreground/80"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M8 1L15 8L8 15L1 8Z" stroke="hsl(var(--primary))" strokeWidth="1.2" fill="hsl(var(--primary) / 0.1)" />
               <circle cx="8" cy="8" r="1.5" fill="hsl(var(--primary) / 0.6)" />
             </svg>
+            <span className="hidden sm:inline">GX</span>
           </button>
 
           {/* Separator */}
+          <div className="w-px h-5 bg-border/30 mx-1" />
+
+          {/* Quick launchers */}
+          <div className="flex items-center gap-0.5 mr-1">
+            {[
+              { icon: Folder, title: 'Explorateur', action: radialItems[0]?.onClick },
+              { icon: TerminalSquare, title: 'Terminal', action: radialItems[1]?.onClick },
+              { icon: Settings, title: 'Paramètres', action: radialItems[3]?.onClick },
+            ].map(({ icon: Icon, title, action }) => (
+              <button
+                key={title}
+                onClick={() => { play('click'); action?.(); }}
+                onMouseEnter={playHover}
+                className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground/80 hover:text-foreground hover:bg-[hsl(var(--explorer-hover))] transition-colors"
+                title={title}
+              >
+                <Icon size={13} />
+              </button>
+            ))}
+          </div>
+
           <div className="w-px h-5 bg-border/30 mx-1" />
 
           {/* Terminal AI */}
@@ -91,11 +114,34 @@ export const DesktopTaskbar = memo(function DesktopTaskbar({
             <span className="hidden sm:inline">Ctrl+K</span>
           </button>
 
-          {/* Separator */}
+          {/* Workspaces */}
+          <div className="w-px h-5 bg-border/30 mx-1" />
+          <div className="hidden md:flex items-center gap-0.5 mr-1" title="Espaces de travail">
+            <Monitor size={12} className="text-muted-foreground/50 mr-1" />
+            {[1, 2, 3, 4].map((n) => (
+              <button
+                key={n}
+                onClick={() => { play('click'); setWorkspace(n); }}
+                className={cn(
+                  'h-5 w-7 text-[10px] font-light border transition-colors',
+                  workspace === n
+                    ? 'border-primary/50 bg-primary/10 text-primary'
+                    : 'border-border/30 text-muted-foreground/60 hover:text-foreground hover:bg-[hsl(var(--explorer-hover))]',
+                )}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
           <div className="w-px h-5 bg-border/30 mx-1" />
 
           {/* Open windows */}
           <div className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto scrollbar-none">
+            {windows.length === 0 && (
+              <div className="hidden sm:flex items-center gap-1.5 h-7 px-2 text-[10px] uppercase tracking-wider text-muted-foreground/35">
+                <Grid3X3 size={11} /> Bureau prêt
+              </div>
+            )}
             {windows.map(win => (
               <div key={win.id} className="relative">
                 <button
@@ -124,7 +170,7 @@ export const DesktopTaskbar = memo(function DesktopTaskbar({
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.12 }}
-                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg border border-border/30 pointer-events-none z-[60]"
+                    className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-2 rounded-lg border border-border/30 pointer-events-none z-[60]"
                     style={{
                       background: 'hsl(220 24% 5% / 0.96)',
                       backdropFilter: 'blur(16px)',

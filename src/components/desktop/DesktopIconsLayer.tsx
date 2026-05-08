@@ -19,7 +19,7 @@ interface Props {
 
 const BASE_CELL_W = 88;
 const BASE_CELL_H = 92;
-const PADDING = 24;
+const PADDING = 56;
 const BOTTOM_RESERVED = 56;
 
 /**
@@ -49,13 +49,18 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
   const ICON_SIZE = Math.round(40 * scale);
   const FONT_SIZE = Math.max(9, Math.round(10 * scale));
 
+  const safeIcons = useMemo(
+    () => icons.filter((icon): icon is DesktopIcon => Boolean(icon?.id && icon?.path && icon?.name)),
+    [icons],
+  );
+
   // Auto-layout for icons without saved positions
   const layout = useMemo(() => {
     const result: Record<string, { x: number; y: number }> = { ...positions };
     if (typeof window === 'undefined') return result;
     const maxRows = Math.max(1, Math.floor((window.innerHeight - PADDING - BOTTOM_RESERVED) / CELL_H));
     let cursor = 0;
-    icons.forEach(icon => {
+    safeIcons.forEach(icon => {
       if (result[icon.path]) return;
       const col = Math.floor(cursor / maxRows);
       const row = cursor % maxRows;
@@ -66,13 +71,13 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
       cursor++;
     });
     return result;
-  }, [icons, positions, CELL_W, CELL_H]);
+  }, [safeIcons, positions, CELL_W, CELL_H]);
 
   // Resolve icon images
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      for (const icon of icons) {
+      for (const icon of safeIcons) {
         if (iconImages[icon.path] !== undefined) continue;
         if (inflightRef.current.has(icon.path)) continue;
         inflightRef.current.add(icon.path);
@@ -98,7 +103,7 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
     };
     void run();
     return () => { cancelled = true; };
-  }, [icons, iconImages, getFileIcon, resolveShortcut, systemInfo?.platform, onResolveImage]);
+  }, [safeIcons, iconImages, getFileIcon, resolveShortcut, systemInfo?.platform, onResolveImage]);
 
   const handleOpen = useCallback(async (icon: DesktopIcon) => {
     play('dblclick');
@@ -237,7 +242,7 @@ export const DesktopIconsLayer = memo(function DesktopIconsLayer({
         onContextMenu={handleBackgroundContextMenu}
         style={{ pointerEvents: 'auto' }}
       >
-        {icons.map(icon => {
+        {safeIcons.map(icon => {
           const pos = layout[icon.path] ?? { x: PADDING, y: PADDING };
           const img = iconImages[icon.path];
           const selected = selectedIds.has(icon.id);

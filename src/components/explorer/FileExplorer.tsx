@@ -4,11 +4,9 @@ import { ExplorerToaster } from './ExplorerToasts';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { I18nProvider, useI18n, Locale } from '@/i18n/LanguageContext';
 import { TabBar, TabState } from './TabBar';
-import { ExplorerTab } from './ExplorerTab';
 import { RealExplorerTab } from './RealExplorerTab';
 import { CommandPalette } from './CommandPalette';
 import { useSound } from '@/hooks/useSound';
-import { useSystemBridge } from '@/hooks/useSystemBridge';
 import { WindowFrame } from '@/components/desktop/WindowFrame';
 import { cn } from '@/lib/utils';
 import './explorer.css';
@@ -58,7 +56,6 @@ function ExplorerInner({
 }) {
   const { locale, setLocale } = useI18n();
   const { play } = useSound();
-  const bridge = useSystemBridge();
   const [tabs, setTabs] = useState<TabState[]>(() => [{ id: makeId(), folderId: initialFolderId }]);
   const [activeId, setActiveId] = useState<string>(() => tabs[0].id);
   const [cmdOpen, setCmdOpen] = useState(false);
@@ -85,7 +82,7 @@ function ExplorerInner({
           const { [id]: _removed, ...rest } = paths;
           return rest;
         });
-        if (id === activeId) setActiveId(next[Math.max(0, idx - 1)].id);
+        if (id === activeId) setActiveId((next[Math.max(0, idx - 1)] || next[0])?.id ?? activeId);
         return next;
       });
     },
@@ -134,27 +131,17 @@ function ExplorerInner({
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {tabs.map((tab) => (
-          bridge.isAvailable ? (
-            <RealExplorerTab
-              key={tab.id}
-              active={tab.id === activeId}
-              initialPath={realTabPaths[tab.id] || initialPath || 'virtual:this-pc'}
-              openToken={tab.id === activeId ? openToken : 0}
-              onPathChange={(path) => {
-                setRealTabPaths((prev) => ({ ...prev, [tab.id]: path }));
-                handleFolderChange(tab.id, path);
-              }}
-              onOpenCommandPalette={() => setCmdOpen(true)}
-            />
-          ) : (
-            <ExplorerTab
-              key={tab.id}
-              active={tab.id === activeId}
-              initialFolderId={tab.folderId}
-              onFolderChange={(fid) => handleFolderChange(tab.id, fid)}
-              onOpenCommandPalette={() => setCmdOpen(true)}
-            />
-          )
+          <RealExplorerTab
+            key={tab.id}
+            active={tab.id === activeId}
+            initialPath={realTabPaths[tab.id] || initialPath || 'virtual:this-pc'}
+            openToken={tab.id === activeId ? openToken : 0}
+            onPathChange={(path) => {
+              setRealTabPaths((prev) => ({ ...prev, [tab.id]: path }));
+              handleFolderChange(tab.id, path);
+            }}
+            onOpenCommandPalette={() => setCmdOpen(true)}
+          />
         ))}
       </div>
 
@@ -229,14 +216,6 @@ export function FileExplorer({
               openToken={openToken}
               onNavigate={onNavigate}
               showWindowControls={!isCognitiveHost}
-            />
-          )}
-          {embeddedMode !== 'standalone' && !showWindowChrome && false && (
-            <ExplorerTab
-              active
-              initialFolderId={initialFolderId}
-              onFolderChange={(fid) => onNavigate?.(fid)}
-              onOpenCommandPalette={() => {}}
             />
           )}
         </div>
