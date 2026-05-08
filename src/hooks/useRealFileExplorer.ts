@@ -163,8 +163,9 @@ function sortFiles(files: FileItem[], field: SortField, direction: SortDirection
 
 export function useRealFileExplorer(initialPath?: string) {
   const bridge = useSystemBridge();
-  const [currentPath, setCurrentPath] = useState(initialPath || REAL_VIRTUAL_PATHS.thisPc);
-  const [history, setHistory] = useState<string[]>([initialPath || REAL_VIRTUAL_PATHS.thisPc]);
+  const initialResolvedPath = resolveMockPath(initialPath || REAL_VIRTUAL_PATHS.thisPc);
+  const [currentPath, setCurrentPath] = useState(initialResolvedPath);
+  const [history, setHistory] = useState<string[]>([initialResolvedPath]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
@@ -187,7 +188,25 @@ export function useRealFileExplorer(initialPath?: string) {
   const requestIdRef = useRef<string | null>(null);
 
   const refreshSystemSnapshots = useCallback(async () => {
-    if (!bridge.isAvailable) return;
+    if (!bridge.isAvailable) {
+      setDrives(mockDrives.map((drive) => ({
+        mount: drive.rootId,
+        label: drive.name,
+        total: drive.totalSpace * 1024 ** 3,
+        used: drive.usedSpace * 1024 ** 3,
+        usage: Math.round((drive.usedSpace / drive.totalSpace) * 100),
+        fsType: drive.fileSystem,
+      })));
+      setNetworkMounts(networkLocations.map((location) => ({ name: location.name, root: location.rootId, displayRoot: location.path })));
+      setLocalServices(localServers.map((server) => ({
+        address: '127.0.0.1',
+        port: server.port,
+        pid: server.pid,
+        processName: server.name,
+        url: server.url,
+      })));
+      return;
+    }
     const [driveResult, networkResult, serviceResult] = await Promise.all([
       bridge.getDrives(), bridge.getNetworkMounts(), bridge.getListeningServices(),
     ]);
