@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSystemBridge } from '@/hooks/useSystemBridge';
 import type { FileItem, FileType, SortDirection, SortField, ViewMode } from '@/types/fileExplorer';
+import { fileSystem, drives as mockDrives, networkLocations } from '@/data/mockFileSystem';
+import { localServers } from '@/data/localServers';
 
 const DIRECTORY_CACHE_TTL = 3500;
 const directoryCache = new Map<string, { timestamp: number; files: FileItem[] }>();
@@ -13,12 +15,12 @@ export const REAL_VIRTUAL_PATHS = {
 } as const;
 
 const QUICK_ACCESS = [
-  { id: 'qa-desktop', name: 'Bureau', path: '~/Desktop', type: 'folder' as FileType },
-  { id: 'qa-downloads', name: 'Telechargements', path: '~/Downloads', type: 'folder' as FileType },
-  { id: 'qa-documents', name: 'Documents', path: '~/Documents', type: 'folder' as FileType },
-  { id: 'qa-pictures', name: 'Images', path: '~/Pictures', type: 'folder' as FileType },
-  { id: 'qa-music', name: 'Musique', path: '~/Music', type: 'folder' as FileType },
-  { id: 'qa-videos', name: 'Videos', path: '~/Videos', type: 'folder' as FileType },
+  { id: 'desktop', name: 'Bureau', path: '~/Desktop', mockPath: 'desktop', type: 'folder' as FileType },
+  { id: 'downloads', name: 'Telechargements', path: '~/Downloads', mockPath: 'downloads', type: 'folder' as FileType },
+  { id: 'documents', name: 'Documents', path: '~/Documents', mockPath: 'documents', type: 'folder' as FileType },
+  { id: 'pictures', name: 'Images', path: '~/Pictures', mockPath: 'pictures', type: 'folder' as FileType },
+  { id: 'music', name: 'Musique', path: '~/Music', mockPath: 'music', type: 'folder' as FileType },
+  { id: 'videos', name: 'Videos', path: '~/Videos', mockPath: 'videos', type: 'folder' as FileType },
 ];
 
 interface RealDrive {
@@ -104,6 +106,7 @@ function joinPath(basePath: string, name: string) {
 
 function parentPath(path: string) {
   if (isVirtualPath(path)) return REAL_VIRTUAL_PATHS.thisPc;
+  if (fileSystem[path]?.parentId) return fileSystem[path].parentId!;
   const trimmed = path.replace(/[\\/]+$/, '');
   if (/^[A-Za-z]:$/.test(trimmed) || /^[A-Za-z]:\\?$/.test(path)) return REAL_VIRTUAL_PATHS.thisPc;
   const index = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/'));
