@@ -238,23 +238,45 @@ export function useRealFileExplorer(initialPath?: string) {
       driveInfo: drive,
     } as FileItem));
     const quickItems = QUICK_ACCESS.map((item): FileItem => ({
-      id: item.path, path: item.path, targetPath: item.path, name: item.name, type: item.type,
+      id: item.mockPath, path: item.path, targetPath: item.mockPath, name: item.name, type: item.type,
       size: 0, dateModified: new Date(), dateCreated: new Date(), parentId: null, children: [], isHidden: false,
     }));
     return [...quickItems, ...driveItems];
   }, [drives, localServices, networkMounts]);
 
   const loadDirectory = useCallback(async (path: string, force = false) => {
-    if (!bridge.isAvailable) return;
-    if (isVirtualPath(path)) {
-      setFiles(buildVirtualFiles(path));
+    const resolvedPath = resolveMockPath(path);
+    if (!bridge.isAvailable && !isVirtualPath(resolvedPath)) {
+      const folder = fileSystem[resolvedPath];
+      if (!folder || folder.type !== 'folder') {
+        setFiles([]);
+        setError(folder ? null : 'Emplacement fictif introuvable');
+        setIsLoading(false);
+        setSelectedItems([]);
+        return;
+      }
+      setFiles((folder.children || []).map(mockItemToFile).filter(Boolean) as FileItem[]);
+      setIsLoading(false);
+      setError(null);
+      setSelectedItems([]);
+      return;
+    }
+    if (!bridge.isAvailable && isVirtualPath(resolvedPath)) {
+      setFiles(buildVirtualFiles(resolvedPath));
+      setIsLoading(false);
+      setError(null);
+      setSelectedItems([]);
+      return;
+    }
+    if (isVirtualPath(resolvedPath)) {
+      setFiles(buildVirtualFiles(resolvedPath));
       setIsLoading(false);
       setError(null);
       setSelectedItems([]);
       return;
     }
 
-    const cached = directoryCache.get(path);
+    const cached = directoryCache.get(resolvedPath);
     if (!force && cached && Date.now() - cached.timestamp < DIRECTORY_CACHE_TTL) {
       setFiles(cached.files);
       setError(null);
@@ -267,11 +289,11 @@ export function useRealFileExplorer(initialPath?: string) {
     if (cached?.files.length) setFiles(cached.files);
     setIsLoading(true);
     try {
-      const result = await bridge.listDir(path, { showHidden: true, requestId });
+      const result = await bridge.listDir(resolvedPath, { showHidden: true, requestId });
       if (result.requestId && requestIdRef.current !== result.requestId) return;
       if (!result.success && !(result.items?.length || result.data?.length)) throw new Error(result.error || 'Impossible de charger le dossier');
       const nextFiles = (result.items || result.data || []).map(dirItemToFile);
-      directoryCache.set(path, { timestamp: Date.now(), files: nextFiles });
+      directoryCache.set(resolvedPath, { timestamp: Date.now(), files: nextFiles });
       setFiles(nextFiles);
       setError(result.success ? null : result.error || null);
       setSelectedItems([]);
@@ -296,12 +318,13 @@ export function useRealFileExplorer(initialPath?: string) {
   }, [bridge, currentPath, loadDirectory]);
 
   const navigateTo = useCallback((path: string, push = true) => {
-    setCurrentPath(path);
+    const nextPath = resolveMockPath(path);
+    setCurrentPath(nextPath);
     setSearchQuery('');
     setRenamingId(null);
     if (push) {
       setHistory((prev) => {
-        const next = [...prev.slice(0, historyIndex + 1), path];
+        const next = [...prev.slice(0, historyIndex + 1), nextPath];
         setHistoryIndex(next.length - 1);
         return next;
       });
