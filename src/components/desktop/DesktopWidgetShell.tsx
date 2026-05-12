@@ -33,7 +33,7 @@ import { CognitiveTestPanel } from './CognitiveTestPanel';
 import { CogWindow } from './CogWindow';
 import { AIActivityOrb } from './AIActivityOrb';
 import { FileExplorer } from '@/components/explorer';
-import { TerminalWindow } from './TerminalWindow';
+import { KaliTerminal } from './KaliTerminal';
 import { WindowSwitcher } from './WindowSwitcher';
 import { DesktopErrorBoundary, GlobalErrorTracer } from './ErrorBoundary';
 import { useNavigate } from 'react-router-dom';
@@ -329,16 +329,14 @@ function DesktopWidgetShellInner() {
                 {win.type === 'explorer' && (
                   <DesktopErrorBoundary label="EXPLORATEUR">
                     <FileExplorer
-                      embeddedMode="cognitive-stream"
-                      onClose={() => handleWindowClose(win.id)}
-                      className="h-full"
-                      showWindowChrome={false}
+                      embeddedMode="bare"
+                      className="h-full w-full"
                     />
                   </DesktopErrorBoundary>
                 )}
                 {win.type === 'terminal' && (
                   <DesktopErrorBoundary label="TERMINAL">
-                    <TerminalWindow onClose={() => handleWindowClose(win.id)} />
+                    <KaliTerminal onClose={() => handleWindowClose(win.id)} />
                   </DesktopErrorBoundary>
                 )}
               </CogWindow>
