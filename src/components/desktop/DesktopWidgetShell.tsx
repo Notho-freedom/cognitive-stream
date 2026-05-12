@@ -216,12 +216,12 @@ function DesktopWidgetShellInner() {
     handleSend(msg);
   });
 
-  const radialItems = useMemo(() => [
-    { label: 'Explorateur', icon: '📁', onClick: () => openExplorer() },
-    { label: 'Terminal', icon: '⌘', onClick: () => openTerminal() },
-    { label: 'Tests', icon: '⊛', onClick: () => cogWindows.open('tests', 'PANEL DE TEST', { size: { width: 480, height: 600 } }) },
-    { label: 'Paramètres', icon: '⚙', onClick: () => navigate('/settings') },
-    { label: 'Quitter', icon: '✕', danger: true, onClick: () => { (window as any).electron?.app?.quit?.(); } },
+  const menuActions = useMemo(() => [
+    { id: 'explorer', label: 'Explorateur de fichiers', description: 'Naviguer dans les fichiers et dossiers', category: 'favorites' as const, icon: KaliMenuIcons.Folder, onClick: () => openExplorer() },
+    { id: 'terminal', label: 'Terminal', description: 'Shell interactif Kali', category: 'favorites' as const, icon: KaliMenuIcons.Terminal, onClick: () => openTerminal() },
+    { id: 'settings', label: 'Paramètres', description: 'Préférences système', category: 'settings' as const, icon: KaliMenuIcons.Settings, onClick: () => navigate('/settings') },
+    { id: 'tests', label: 'Panel de tests', description: 'Tests cognitifs', category: 'tools' as const, icon: KaliMenuIcons.Tests, onClick: () => cogWindows.open('tests', 'Panel de tests', { size: { width: 480, height: 600 } }) },
+    { id: 'cmdbar', label: 'Terminal IA', description: 'Barre de commande cognitive (Ctrl+K)', category: 'tools' as const, icon: KaliMenuIcons.Terminal, onClick: () => setCommandBarVisible(true) },
   ], [cogWindows, navigate, openExplorer, openTerminal]);
 
   const desktopMenuItems = useMemo(() => [
@@ -355,7 +355,7 @@ function DesktopWidgetShellInner() {
           onFocusWindow={cogWindows.focus}
           onMinimizeWindow={cogWindows.minimize}
           onCloseWindow={handleWindowClose}
-          radialItems={radialItems}
+          menuActions={menuActions}
           onToggleCommandBar={toggleCommandBar}
           isLoading={isLoading}
           isStreaming={isStreaming}
