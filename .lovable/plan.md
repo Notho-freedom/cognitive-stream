@@ -1,96 +1,46 @@
-# Plan — Desktop sur le web + Fix crash Electron
-
 ## Objectif
-1. Permettre d'accéder au bureau immersif **depuis la vue web** (avec données fictives), pour pouvoir tout prévisualiser : taskbar, icônes, fenêtres, explorateur, terminal, context menus.
-2. **Localiser et corriger** le crash où le contenu disparaît dès qu'on clique dans la fenêtre Electron (problème également présent dans le repo de l'explorateur d'origine).
-3. Compléter ce qui manque (flows simulés) pour que tout soit testable en web.
+Remplacer l’approche actuelle trop “GX/radiale” par un vrai desktop inspiré Kali Linux/XFCE : panneau supérieur sobre, menu applications vertical, bureau stable avec icônes, fenêtres classiques, et intégration propre des composants existants sans double chrome ni comportements parasites.
 
----
+## Ce qui sera corrigé
+- Supprimer le menu radial qui s’ouvre actuellement depuis “Démarrer” et le remplacer par un menu Kali/XFCE classique.
+- Éviter les fenêtres imbriquées : l’explorateur garde ses onglets, toolbar, navigation et status bar internes ; la fenêtre desktop ne fournit que le cadre OS.
+- Même principe pour le terminal : une vraie fenêtre terminal desktop, sans header terminal contradictoire ou bouton de fermeture dupliqué.
+- Stabiliser les clics : les interactions du menu, des icônes, des fenêtres et des context menus ne doivent plus masquer tout le contenu ou déclencher des couches inattendues.
+- Garder la route `/desktop` utilisable en web preview avec données fictives quand le pont Electron n’est pas disponible.
 
-## Partie A — Bureau accessible depuis le web
+## Plan d’implémentation
+1. **Shell desktop Kali**
+   - Transformer `DesktopTaskbar` en panneau supérieur type Kali/XFCE : bouton dragon/applications à gauche, lanceurs rapides, boutons de fenêtres, workspaces, tray à droite.
+   - Remplacer `StartRadialMenu` par un composant `KaliStartMenu` en panneau vertical : favoris, catégories, recherche simple, actions système.
+   - Retirer les effets radiaux et les ouvertures incohérentes.
 
-### A1. Nouvelle route `/desktop`
-- Ajouter `<Route path="/desktop" element={<DesktopPage />} />` dans `src/App.tsx`.
-- Créer `src/pages/Desktop.tsx` qui rend `<DesktopWidgetShell forceWeb />` (force le mode bureau même hors Electron).
+2. **Fenêtres desktop classiques**
+   - Adapter `CogWindow` en cadre de fenêtre sobre : barre de titre fine, contrôles minimize/maximize/close, drag, focus, snap, z-index.
+   - Ajouter un mode `chromeVariant` ou équivalent pour éviter que les apps intégrées recréent leur propre fenêtre.
+   - Conserver uniquement le chrome OS externe dans le desktop ; les composants internes conservent leurs propres barres fonctionnelles.
 
-### A2. Découpler `DesktopWidgetShell` d'Electron
-- Ajouter un prop `forceWeb?: boolean` à `DesktopWidgetShell`.
-- Dans `useSystemBridge`, conserver le comportement actuel (bridge inactif sur web) ; tous les hooks doivent tomber proprement sur des **mocks** quand `isAvailable === false`.
-- Vérifier que `useDesktopIcons(true)` produit bien des icônes mock (si non, brancher sur `mockFileSystem`).
-- Pour `RealExplorerTab` : déjà gardé par `bridge.isAvailable`, donc en web on tombe sur `ExplorerTab` (mock) — bon par défaut.
+3. **Explorateur parfaitement intégré**
+   - Monter `FileExplorer` en mode embedded strict : pas de `WindowFrame` interne, pas de position fixed interne.
+   - Garder son `TabBar`, `Toolbar`, sidebar, grille, preview, terminal intégré, status bar.
+   - Passer le chemin demandé depuis les icônes desktop (`mock:documents`, dossiers réels, etc.) vers `initialPath/openToken` pour ouvrir le bon emplacement.
 
-### A3. Lien d'accès depuis l'écran web par défaut
-- Dans `src/pages/Index.tsx` (vue cognitive web), ajouter un petit bouton discret « Ouvrir le bureau » qui navigue vers `/desktop`.
-- Conserver le `LoadingScreen` initial (skip si déjà visité — `sessionStorage`).
+4. **Terminal parfaitement intégré**
+   - Remplacer le wrapper actuel par une fenêtre terminal pleine hauteur.
+   - Le terminal ne doit plus afficher de mini-barre avec fermeture/réduction interne quand il est dans une fenêtre desktop.
+   - Ajouter un mode d’affichage terminal desktop, style Kali terminal : prompt Linux-like, fond sombre, contenu scrollable pleine fenêtre.
 
-### A4. Mocks complets pour fluidité web
-- S'assurer que toutes les actions clés fonctionnent avec mocks :
-  - Double-clic icône → ouvre `FileExplorer` (mock data via `mockFileSystem`).
-  - Terminal → `TerminalWindow` doit fonctionner sans bridge (mode echo/simulation).
-  - Wallpaper, accent, icon scale, slideshow → déjà côté `useSettings` (localStorage), OK.
-  - Context menu bureau, Alt+Tab, snap, system tray → déjà UI-only, OK.
-- Ajouter un fallback simulation dans `TerminalWindow` quand `bridge.exec` indisponible (renvoie un texte mock après 200ms).
+5. **Icônes et actions desktop**
+   - Mapper les icônes mock correctement : Explorateur ouvre l’explorateur, Terminal ouvre le terminal, Paramètres ouvre settings, dossiers ouvrent l’explorateur au bon chemin.
+   - Corriger les `.lnk` mock qui aujourd’hui peuvent tenter un `xdg-open` inutile en web preview.
+   - Garder le drag/select/context menu, mais sans déclencher le menu global quand on clique sur une icône ou une fenêtre.
 
-### A5. Adaptation viewport web
-- `position: fixed inset-0` du shell est déjà compatible : il occupera le viewport du `/desktop`. Vérifier qu'on n'a pas de scrollbar parasite (overflow hidden sur `body` quand sur cette route, via une classe ajoutée par `Desktop.tsx`).
+6. **Stabilité et validation**
+   - Renforcer les garde-fous contre les objets `null` dans la gestion fenêtres/menu/tabs.
+   - Vérifier `/desktop` dans la preview : clic menu, ouverture explorateur, ouverture terminal, focus/minimize/maximize/close, double-clic icônes.
+   - Inspecter les logs console pour confirmer l’absence du crash `Cannot read properties of null (reading 'id')`.
 
----
-
-## Partie B — Crash Electron : « clic = écran noir »
-
-### B1. Diagnostic (hypothèse principale)
-Symptôme : juste après un clic, tout le React tree disparaît, on ne voit plus que `DesktopBackground`. C'est le pattern d'un **ErrorBoundary qui catch puis affiche un fallback transparent**, OU d'un **render conditionnel qui passe à `null`**.
-
-Pistes à inspecter :
-1. **`DesktopErrorBoundary`** : son fallback affiche normalement une carte « ERREUR SYSTÈME ». Si on voit juste le fond, soit le fallback est masqué par un z-index, soit l'erreur survient ailleurs.
-2. **`RealExplorerTab` / `useRealFileExplorer`** : appelle `bridge.getDrives()`, `listDir`, `watchDir` au montage. Une réponse `null/undefined` mal gérée peut throw au render suivant.
-3. **`useFocusManager` + `usePointerSystem`** : si un handler `pointerdown` modifie un état qui démonte conditionnellement un sous-arbre.
-4. **`CogWindow` snap logic** : un `mousedown` sur la fenêtre déclenche peut-être un reposition qui casse.
-5. **Overlay invisible** : un `<div fixed inset-0>` (DesktopAmbient, AIActivityOrb, WindowSwitcher) qui passe en `pointer-events:auto` + opacité 1 sur certains états.
-
-### B2. Instrumentation
-- Ajouter dans `DesktopErrorBoundary.componentDidCatch` un `console.error` explicite + stocker le stack dans `window.__lastDesktopError` pour debug.
-- Ajouter un wrapper `window.addEventListener('error', ...)` et `unhandledrejection` dans `DesktopWidgetShellInner` (mount), qui logge avec préfixe `[DESKTOP-CRASH]`.
-- Ajouter `console.log('[DESKTOP] click', e.target)` temporairement sur le container racine pour identifier ce qui suit le clic.
-
-### B3. Fixes préventifs (à appliquer même sans repro)
-1. **Garde `RealExplorerTab`** : envelopper son contenu dans un `<DesktopErrorBoundary>` local pour qu'un crash dans l'explorateur ne tue pas le shell.
-2. **Garde async bridge** : dans `useRealFileExplorer`, wrapper toutes les `await bridge.xxx()` dans try/catch et retourner un état d'erreur visible plutôt que throw au render.
-3. **ErrorBoundary fallback visible** : forcer son fond à `hsl(220 20% 4% / 1)` opaque + `z-[9999]` pour qu'on voie bien quand il se déclenche (et donc qu'on diagnostique le vrai bug).
-4. **Vérifier overlay AIActivityOrb / DesktopAmbient** : s'assurer qu'aucun n'est `inset-0 pointer-events-auto` au-dessus du contenu.
-5. **TerminalWindow** : si `xterm` ou autre lib charge un worker via chemin absolu, ça crash sous `file://`. Ajouter try/catch + fallback texte simple.
-
-### B4. Validation
-- Lancer `npx vite build && electron .` localement (instructions dans `electron/README.md`).
-- Cliquer dans la fenêtre, observer les nouveaux logs `[DESKTOP-CRASH]` ou `[DesktopErrorBoundary]` pour identifier précisément le composant fautif.
-- Si la cause exacte est trouvée → patch ciblé. Sinon, les gardes B3 confinent au minimum la casse.
-
----
-
-## Partie C — Optimisation & complétude
-
-- Vérifier que `useIconScale` (Ctrl+molette) re-fonctionne (régression mentionnée précédemment) : tracer le `wheel` listener et `settings.iconScale`.
-- Vérifier le changement de wallpaper (image perso) : `Settings.tsx` upload → `update({ customWallpaper })` → `getWallpaperBackground` doit lire `wallpaperPreset === 'custom'`.
-- Compléter le `TerminalWindow` mock (commandes : `help`, `ls`, `clear`, `echo`).
-- Compléter context menus fichiers (déjà existants côté explorer ; vérifier connexion).
-
----
-
-## Détails techniques
-
-### Fichiers créés
-- `src/pages/Desktop.tsx`
-
-### Fichiers modifiés
-- `src/App.tsx` — ajout route `/desktop`
-- `src/pages/Index.tsx` — bouton « Ouvrir le bureau »
-- `src/components/desktop/DesktopWidgetShell.tsx` — prop `forceWeb`, retire la dépendance Electron stricte
-- `src/components/desktop/ErrorBoundary.tsx` — fallback opaque + z-index élevé + log enrichi
-- `src/components/desktop/TerminalWindow.tsx` — fallback simulation web
-- `src/hooks/useRealFileExplorer.ts` — try/catch sur tous les `await bridge.*`
-- `src/hooks/useSettings.ts` / `useWallpaper.ts` / `useIconScale.ts` — vérification régressions
-- `src/components/desktop/DesktopAmbient.tsx` — vérifier `pointer-events:none`
-
-### Risques
-- `RealExplorerTab` peut nécessiter plus de gardes que prévu si l'API mock du `useFileExplorer` est désynchronisée.
-- Si le crash Electron vient d'un crash natif (worker, font), les fixes JS ne suffiront pas — il faudra chercher dans la console du processus principal.
+## Contraintes gardées
+- Pas de backend.
+- Pas de modification des fichiers générés Cloud.
+- Design sombre, sobre, desktop Kali/XFCE, mais compatible avec les tokens existants du projet.
+- Les composants existants restent réutilisés ; on corrige leur intégration au lieu de les dupliquer inutilement.

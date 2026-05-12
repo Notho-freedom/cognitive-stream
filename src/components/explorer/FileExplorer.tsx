@@ -16,8 +16,13 @@ export interface FileExplorerProps {
   initialPath?: string;
   /** Increment to force the active embedded tab to sync to initialPath. */
   openToken?: number;
-  /** Visual embedding mode. Standalone keeps NextGen chrome; Cognitive Stream supplies its own frame. */
-  embeddedMode?: 'standalone' | 'cognitive-stream';
+  /**
+   * Visual embedding mode.
+   * - standalone: keeps NextGen chrome.
+   * - cognitive-stream: floating GX frame (legacy HUD).
+   * - bare: just the explorer content, fills its parent. The host provides the window chrome.
+   */
+  embeddedMode?: 'standalone' | 'cognitive-stream' | 'bare';
   /** Folder id to open the first tab in. Defaults to the virtual "This PC" view. */
   initialFolderId?: string;
   /** UI language. Defaults to 'fr'. */
@@ -195,8 +200,9 @@ export function FileExplorer({
 }: FileExplorerProps = {}) {
   const [isMaximized, setIsMaximized] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
-  const isCognitiveHost = embeddedMode === 'cognitive-stream' || Boolean(onClose);
-  const hostClassName = className || (isCognitiveHost ? 'h-full' : undefined);
+  const isBare = embeddedMode === 'bare';
+  const isCognitiveHost = !isBare && (embeddedMode === 'cognitive-stream' || Boolean(onClose));
+  const hostClassName = className || (isCognitiveHost || isBare ? 'h-full w-full' : undefined);
   const explorerContent = (
     <I18nProvider initialLocale={initialLocale}>
       <TooltipProvider delayDuration={400}>
@@ -207,7 +213,7 @@ export function FileExplorer({
             hostClassName
           )}
         >
-          {showWindowChrome && !isCognitiveHost ? (
+          {showWindowChrome && !isCognitiveHost && !isBare ? (
             <ExplorerInner initialFolderId={initialFolderId} initialPath={initialPath} openToken={openToken} onNavigate={onNavigate} />
           ) : (
             <ExplorerInner
@@ -215,7 +221,7 @@ export function FileExplorer({
               initialPath={initialPath}
               openToken={openToken}
               onNavigate={onNavigate}
-              showWindowControls={!isCognitiveHost}
+              showWindowControls={false}
             />
           )}
         </div>
@@ -224,7 +230,7 @@ export function FileExplorer({
     </I18nProvider>
   );
 
-  if (!isCognitiveHost) return explorerContent;
+  if (isBare || !isCognitiveHost) return explorerContent;
 
   return (
     <motion.div
