@@ -35,6 +35,7 @@ import { AIActivityOrb } from './AIActivityOrb';
 import { FileExplorer } from '@/components/explorer';
 import { KaliTerminal } from './KaliTerminal';
 import { WindowSwitcher } from './WindowSwitcher';
+import { KaliMenuIcons, type KaliMenuAction } from './KaliStartMenu';
 import { DesktopErrorBoundary, GlobalErrorTracer } from './ErrorBoundary';
 import { useNavigate } from 'react-router-dom';
 
