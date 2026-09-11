@@ -1,73 +1,90 @@
-# Welcome to your Lovable project
+# Cognitive Stream
 
-## Project info
+![Cognitive Stream Screenshot](screenshots/homepage.png)
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Overview
+Cognitive Stream is an advanced AI-powered desktop environment and cognitive interface built with React, TypeScript, Electron, and Supabase. It features a futuristic desktop experience with an integrated AI brain, file explorer, voice input, and real-time cognitive processing.
 
-## How can I edit this code?
+## Features
+- **Cognitive Desktop Environment**: Futuristic desktop UI with icons, taskbar, sidebar, and widgets
+- **AI Brain Integration**: Multi-provider AI orchestration (DeepSeek, Groq, Ollama, OpenRouter, Poe, Lovable)
+- **Voice Input**: Web Speech API and Edge TTS integration
+- **File Explorer**: Full-featured file manager with tabs, context menus, and preview panel
+- **Real-time Chat**: Cognitive chat interface with typing indicators and notifications
+- **Autonomy Engine**: Self-continuing task execution and planning
+- **Electron Support**: Desktop app with native window controls and IPC bridge
+- **Supabase Backend**: Real-time database, auth, and edge functions
+- **Sound Effects**: Interactive UI feedback with Epidemic Sound assets
+- **Theme System**: Dark/light theme with toggle support
 
-There are several ways of editing your application.
+## Technology Stack
+- **React 18** - UI library
+- **TypeScript** - Type safety
+- **Vite** - Build tool and dev server
+- **Electron** - Desktop application framework
+- **Tailwind CSS** - Styling
+- **shadcn/ui** - Component library
+- **Supabase** - Backend, database, and real-time
+- **Vitest** - Testing framework
+- **DeepSeek / Groq / Ollama / OpenRouter / Poe** - AI providers
 
-**Use Lovable**
+## Project Structure
+```
+cognitive-stream/
+├── electron/           # Electron main process and preload
+├── src/
+│   ├── components/
+│   │   ├── cognitive/  # AI cognitive interface components
+│   │   ├── desktop/    # Desktop shell components
+│   │   ├── explorer/   # File explorer components
+│   │   └── ui/         # shadcn/ui components
+│   ├── hooks/          # Custom hooks (brain, TTS, file ops, etc.)
+│   ├── lib/            # AI providers, system actions, utilities
+│   ├── pages/          # Desktop, Index, Settings pages
+│   ├── i18n/           # Internationalization
+│   └── integrations/   # Supabase client
+├── supabase/           # Config, migrations, edge functions
+├── scripts/            # Dev and build scripts
+├── public/             # Static assets and sounds
+└── tests/              # Integration tests
+```
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Getting Started
 
-Changes made via Lovable will be committed automatically to this repo.
+### Prerequisites
+- Node.js 20+
+- npm 10+
 
-**Use your preferred IDE**
+### Installation
+```bash
+git clone <repository-url>
+cd cognitive-stream
+npm install
+```
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+### Development (Web)
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+### Development (Desktop)
+```bash
+npm run dev:desktop
+```
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Build
+```bash
+npm run build
+npm run build:desktop
+```
 
-**Use GitHub Codespaces**
+### Test
+```bash
+npm run test
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Screenshots
+![Homepage](screenshots/homepage.png)
 
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## License
+MIT
